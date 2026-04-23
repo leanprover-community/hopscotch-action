@@ -10,7 +10,9 @@
 #   GH_TOKEN, OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, TARGET, GIT_URL,
 #   ISSUE_LABELS
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
+# shellcheck source=lib/github.sh
 source "$(dirname "$0")/lib/github.sh"
 
 : "${DEP_NAME:?}"
@@ -53,6 +55,7 @@ if [ "$OUTCOME" = "incompatible" ]; then
   TARGET_LINE=""
   [ -n "$TARGET" ]    && TARGET_LINE="**Target ref tested:** \`${TARGET:0:7}\`"
 
+  # shellcheck disable=SC2016  # escaped backticks in single-quoted format string are literal, not command substitutions
   ISSUE_BODY=$(printf '%s\n\nThe \`%s\` dependency has a breaking upstream commit.\n\n%s\n%s\n%s\n\n[View run](%s)\n\n%s' \
     "$MARKER" \
     "$DEP_NAME" \

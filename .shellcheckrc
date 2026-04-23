@@ -1,0 +1,4 @@
+# Resolve `# shellcheck source=` paths relative to the script being checked.
+source-path=SCRIPTDIR
+# Allow shellcheck to follow sourced files (no need for -x on the CLI).
+external-sources=true

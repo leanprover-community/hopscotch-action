@@ -5,7 +5,9 @@
 #   OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, TARGET, PREV_PIN, NEW_PIN, PR_URL,
 #   GIT_URL, SUMMARY_MD
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
+# shellcheck source=lib/github.sh
 source "$(dirname "$0")/lib/github.sh"
 
 OUTCOME="${OUTCOME:-}"

@@ -2,6 +2,7 @@
 # Detect whether the working tree has uncommitted changes (staged or unstaged).
 # Emits output: no_changes=true|false
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 if git diff --quiet && git diff --cached --quiet; then

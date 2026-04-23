@@ -4,7 +4,9 @@
 # Required env:
 #   GH_TOKEN, BRANCH, BASE, TITLE, BODY, LABELS, REVIEWERS
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
+# shellcheck source=lib/github.sh
 source "$(dirname "$0")/lib/github.sh"
 
 : "${BRANCH:?}"

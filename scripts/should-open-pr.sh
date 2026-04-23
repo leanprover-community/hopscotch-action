@@ -8,6 +8,7 @@
 # Required env:
 #   OUTCOME, NEW_PIN, PREVIOUS_PIN, OPEN_PR
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 OUTCOME="${OUTCOME:-}"

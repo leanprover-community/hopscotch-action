@@ -7,6 +7,7 @@
 #   NO_CHANGES         ("true" / "false")
 #   PR_NUMBER, PR_URL, PR_ACTION
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 SHOULD_OPEN_PR="${SHOULD_OPEN_PR:-false}"

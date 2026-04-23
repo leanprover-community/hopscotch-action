@@ -5,6 +5,7 @@
 # Required env:
 #   BRANCH, COMMIT_MESSAGE
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 : "${BRANCH:?}"

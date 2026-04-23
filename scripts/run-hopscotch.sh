@@ -15,6 +15,7 @@
 # Required env:
 #   DEP_NAME, FROM_REF, TO_REF, PROJECT_DIR, EXTRA_ARGS, GITHUB_TOKEN
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 : "${DEP_NAME:?}"

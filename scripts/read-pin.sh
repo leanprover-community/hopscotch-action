@@ -8,6 +8,7 @@
 # Required env:
 #   DEP_NAME, FROM_INPUT, PROJECT_DIR
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 : "${DEP_NAME:?}"

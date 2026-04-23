@@ -6,7 +6,9 @@
 # Required env:
 #   GH_TOKEN, NEW_PIN, PREVIOUS_PIN, DEP_NAME, GIT_URL, OUTCOME, CULPRIT
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
+# shellcheck source=lib/github.sh
 source "$(dirname "$0")/lib/github.sh"
 
 : "${DEP_NAME:?}"
@@ -31,7 +33,6 @@ NEW_SUBJECT=$(fetch_subject "$NEW_PIN")
 PREV_SUBJECT=$(fetch_subject "$PREVIOUS_PIN")
 
 NEW_SHORT="${NEW_PIN:0:7}"
-PREV_SHORT="${PREVIOUS_PIN:0:7}"
 
 PR_TITLE="chore: bump ${DEP_NAME} to ${NEW_SHORT}"
 [ -n "$NEW_SUBJECT" ] && PR_TITLE="${PR_TITLE}: ${NEW_SUBJECT}"

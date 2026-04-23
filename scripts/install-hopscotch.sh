@@ -6,6 +6,7 @@
 #   GH_TOKEN            — token for gh release lookups
 #   HOPSCOTCH_VERSION   — release tag or "latest"
 
+# shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
 
 : "${GH_TOKEN:?}"
