@@ -1,4 +1,7 @@
 # hopscotch-action
+> [!WARNING]
+> 🚧 This project is still under early development: bugs and breaking changes are expected.
+> A release tag will be published when it is ready for public consumption.
 
 A reusable GitHub Action that wraps the [`hopscotch`](https://github.com/leanprover-community/hopscotch) CLI to:
 
