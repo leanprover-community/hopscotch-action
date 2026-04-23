@@ -595,8 +595,7 @@ runs:
             trimmed="${label#"${label%%[![:space:]]*}"}"
             trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
             if [ -n "$trimmed" ]; then
-              gh label view "$trimmed" >/dev/null 2>&1 || \
-                gh label create "$trimmed" --color eec9fd
+              gh label create "$trimmed" --color eec9fd >/dev/null 2>&1 || true
               LABEL_ARGS+=(--label "$trimmed")
             fi
           done
@@ -819,8 +818,7 @@ runs:
               trimmed="${label#"${label%%[![:space:]]*}"}"
               trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
               if [ -n "$trimmed" ]; then
-                gh label view "$trimmed" >/dev/null 2>&1 || \
-                  gh label create "$trimmed" --color eec9fd
+                gh label create "$trimmed" --color eec9fd >/dev/null 2>&1 || true
                 LABEL_ARGS+=(--label "$trimmed")
               fi
             done
