@@ -21,6 +21,26 @@ source "$(dirname "$0")/lib/common.sh"
 : "${MAX_WINDOW:?}"
 PREVIOUS_PIN="${PREVIOUS_PIN:-}"
 EXIT_CODE="${EXIT_CODE:-0}"
+UPPER_ENDPOINT_SHA="${UPPER_ENDPOINT_SHA:-}"
+
+# Short-circuit: hopscotch verified the upper endpoint passes — downstream is
+# healthy. Synthesise a passed/skipped outcome without requiring state.json.
+if [ -n "$UPPER_ENDPOINT_SHA" ]; then
+  OUTCOME="passed"
+  if [ "$UPPER_ENDPOINT_SHA" = "$PREVIOUS_PIN" ] && [ -n "$PREVIOUS_PIN" ]; then
+    OUTCOME="skipped"
+  fi
+  {
+    echo "outcome=$OUTCOME"
+    echo "culprit_commit="
+    echo "last_good_commit=$UPPER_ENDPOINT_SHA"
+    echo "target_commit=$UPPER_ENDPOINT_SHA"
+    echo "new_pin=$UPPER_ENDPOINT_SHA"
+    echo "items_count=0"
+    echo "summary_md="
+  } >> "$GITHUB_OUTPUT"
+  exit 0
+fi
 
 STATE="${PROJECT_DIR}/.lake/hopscotch/state.json"
 SUMMARY="${PROJECT_DIR}/.lake/hopscotch/summary.md"

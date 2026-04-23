@@ -159,9 +159,22 @@ runs:
         PROJECT_DIR: ${{ inputs.project-dir }}
       run: ${{ github.action_path }}/scripts/read-pin.sh
 
-    # Stage 3 — run hopscotch (clean stale session + invoke `hopscotch dep`).
+    # Stage 3a — check whether the upper endpoint already passes before bisecting.
+    - name: Verify upper endpoint
+      id: verify-upper
+      shell: bash
+      env:
+        DEP_NAME: ${{ inputs.dependency }}
+        PROJECT_DIR: ${{ inputs.project-dir }}
+        GIT_URL: ${{ steps.read-pin.outputs.git_url }}
+        TO_REF: ${{ inputs.to }}
+      run: ${{ github.action_path }}/scripts/verify-upper-endpoint.sh
+
+    # Stage 3b — run hopscotch (clean stale session + invoke `hopscotch dep`).
+    # Skipped when the upper endpoint already passes (downstream healthy).
     - name: Run hopscotch
       id: run
+      if: steps.verify-upper.outputs.upper_endpoint_sha == ''
       shell: bash
       env:
         DEP_NAME: ${{ inputs.dependency }}
@@ -182,6 +195,7 @@ runs:
         PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
         EXIT_CODE: ${{ steps.run.outputs.exit_code }}
         MAX_WINDOW: ${{ inputs.max-window-size }}
+        UPPER_ENDPOINT_SHA: ${{ steps.verify-upper.outputs.upper_endpoint_sha }}
       run: ${{ github.action_path }}/scripts/parse-state.sh
 
     # Stage 5 — compute the "should we attempt a PR?" boolean once.

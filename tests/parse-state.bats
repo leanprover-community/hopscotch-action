@@ -74,6 +74,26 @@ teardown() { teardown_sandbox; }
   [ "$(output_value outcome)" = "tool-error" ]
 }
 
+@test "UPPER_ENDPOINT_SHA set → outcome=passed, no state.json required" {
+  export PREVIOUS_PIN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  export UPPER_ENDPOINT_SHA=dddddddddddddddddddddddddddddddddddddddd
+  run "$SCRIPTS_DIR/parse-state.sh"
+  [ "$status" -eq 0 ]
+  [ "$(output_value outcome)" = "passed" ]
+  [ "$(output_value last_good_commit)" = "dddddddddddddddddddddddddddddddddddddddd" ]
+  [ "$(output_value target_commit)" = "dddddddddddddddddddddddddddddddddddddddd" ]
+  [ "$(output_value new_pin)" = "dddddddddddddddddddddddddddddddddddddddd" ]
+  [ "$(output_value culprit_commit)" = "" ]
+}
+
+@test "UPPER_ENDPOINT_SHA == PREVIOUS_PIN → outcome=skipped" {
+  export PREVIOUS_PIN=dddddddddddddddddddddddddddddddddddddddd
+  export UPPER_ENDPOINT_SHA=dddddddddddddddddddddddddddddddddddddddd
+  run "$SCRIPTS_DIR/parse-state.sh"
+  [ "$status" -eq 0 ]
+  [ "$(output_value outcome)" = "skipped" ]
+}
+
 @test "new_pin reflects manifest rev after run" {
   cp "$FIXTURES_DIR/state-completed.json" .lake/hopscotch/state.json
   export PREVIOUS_PIN=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
