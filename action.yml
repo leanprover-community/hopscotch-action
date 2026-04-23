@@ -29,10 +29,14 @@ inputs:
     description: 'Path to the Lean project root. Defaults to the repository root.'
     required: false
     default: '.'
-  additional-args:
+  extra-args:
     description: >
-      Additional arguments passed verbatim to `hopscotch dep`, e.g.
-      `--scan-mode linear --allow-dirty-workspace --git-url <url>`.
+      Additional arguments passed verbatim to `hopscotch dep`. Accepts single-
+      or multi-line input; each line is word-split on whitespace, so you can
+      group related flags across lines:
+        extra-args: |
+          --scan-mode linear
+          --allow-dirty-workspace
     required: false
     default: ''
 
@@ -51,6 +55,7 @@ inputs:
       need a large window.
     required: false
     default: '3000'
+
   # ---- Bump PR ----------------------------------------------------------
   open-pr:
     description: 'Open or update a bump PR when the manifest pin changes.'
@@ -68,12 +73,10 @@ inputs:
     description: 'Comma-separated list of labels to apply to the bump PR.'
     required: false
     default: ''
-  pr-title:
-    description: 'Override the auto-generated bump PR title.'
-    required: false
-    default: ''
-  pr-body:
-    description: 'Override the auto-generated bump PR body.'
+  reviewers:
+    description: >
+      Comma-separated list of GitHub usernames or team slugs to request review
+      from on the bump PR (passed to `gh pr create --reviewer`).
     required: false
     default: ''
 
@@ -130,7 +133,7 @@ outputs:
     value: ${{ steps.issue.outputs.issue_number }}
   issue-url:
     description: 'Tracking issue URL (empty when not opened).'
-    value: ${{ steps.report.outputs.issue_url }}
+    value: ${{ steps.issue.outputs.issue_url }}
   summary-md:
     description: 'Markdown summary from .lake/hopscotch/summary.md.'
     value: ${{ steps.parse.outputs.summary_md }}
@@ -138,430 +141,95 @@ outputs:
 runs:
   using: composite
   steps:
-    # ==================================================================
-    #                         Stage 1: Set up
-    # ==================================================================
-    # ------------------------------------------------------------------
-    # Step 0: Install elan (Lean toolchain manager) if not already present.
-    # ------------------------------------------------------------------
-    - name: Install elan
-      shell: bash
-      run: |
-        set -euo pipefail
-        if command -v elan &>/dev/null || [ -x "$HOME/.elan/bin/elan" ]; then
-          echo "elan already installed, skipping."
-        else
-          echo "::group::Elan Installation Output"
-          curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf |
-            sh -s -- -y --default-toolchain none
-          echo "::endgroup::"
-        fi
-        echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-        "$HOME/.elan/bin/elan" --version
-
-    # ------------------------------------------------------------------
-    # Step 1: Resolve "latest" to a concrete tag via the GitHub API.
-    # ------------------------------------------------------------------
-    - name: Resolve version
-      id: resolve
+    # Stage 1 — install elan + hopscotch binary and add both to PATH.
+    - name: Install hopscotch
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
         HOPSCOTCH_VERSION: ${{ inputs.hopscotch-version }}
-      run: |
-        set -euo pipefail
-        if [ "$HOPSCOTCH_VERSION" = "latest" ]; then
-          VERSION=$(gh release view \
-            --repo leanprover-community/hopscotch \
-            --json tagName \
-            --jq '.tagName')
-          echo "Resolved latest hopscotch version: $VERSION"
-        else
-          VERSION="$HOPSCOTCH_VERSION"
-        fi
-        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      run: ${{ github.action_path }}/scripts/install-hopscotch.sh
 
-    # ------------------------------------------------------------------
-    # Step 2: Detect runner OS and architecture → asset filename.
-    # ------------------------------------------------------------------
-    - name: Detect platform
-      id: platform
-      shell: bash
-      run: |
-        set -euo pipefail
-        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-        ARCH=$(uname -m)
-        case "${OS}-${ARCH}" in
-          linux-x86_64)            ASSET="hopscotch-linux-x86_64"  ; EXT="" ;;
-          darwin-x86_64)           ASSET="hopscotch-macos-x86_64"  ; EXT="" ;;
-          darwin-arm64)            ASSET="hopscotch-macos-arm64"    ; EXT="" ;;
-          mingw*|cygwin*|msys*)    ASSET="hopscotch-windows-x86_64" ; EXT=".exe" ;;
-          *)
-            echo "::error::Unsupported platform: ${OS}-${ARCH}"
-            exit 1 ;;
-        esac
-        INSTALL_NAME="hopscotch${EXT}"
-        echo "asset=${ASSET}"            >> "$GITHUB_OUTPUT"
-        echo "ext=${EXT}"               >> "$GITHUB_OUTPUT"
-        echo "install_name=${INSTALL_NAME}" >> "$GITHUB_OUTPUT"
-        echo "Platform: ${OS}-${ARCH} → ${ASSET}"
-
-    # ------------------------------------------------------------------
-    # Step 3: Download binary
-    # ------------------------------------------------------------------
-    - name: Download hopscotch binary
-      shell: bash
-      env:
-        VERSION: ${{ steps.resolve.outputs.version }}
-        ASSET: ${{ steps.platform.outputs.asset }}
-        EXT: ${{ steps.platform.outputs.ext }}
-        INSTALL_NAME: ${{ steps.platform.outputs.install_name }}
-      run: |
-        set -euo pipefail
-        mkdir -p ~/.hopscotch-bin
-        URL="https://github.com/leanprover-community/hopscotch/releases/download/${VERSION}/${ASSET}${EXT}"
-        echo "Downloading $URL"
-        curl -fsSL "$URL" -o ~/.hopscotch-bin/"$INSTALL_NAME"
-        chmod +x ~/.hopscotch-bin/"$INSTALL_NAME"
-        # Ensure the binary is named "hopscotch" (without extension) for uniform invocation.
-        if [ -n "$EXT" ] && [ ! -f ~/.hopscotch-bin/hopscotch ]; then
-          cp ~/.hopscotch-bin/"$INSTALL_NAME" ~/.hopscotch-bin/hopscotch
-        fi
-
-    # ------------------------------------------------------------------
-    # Step 5: Add binary directory to PATH.
-    # ------------------------------------------------------------------
-    - name: Add hopscotch to PATH
-      shell: bash
-      run: |
-        echo "$HOME/.hopscotch-bin" >> "$GITHUB_PATH"
-        echo "hopscotch $(~/.hopscotch-bin/hopscotch --version 2>/dev/null || echo '(version unknown)') installed."
-
-
-    # ==================================================================
-    #   Stage 2: Read the current dependency pin from lake-manifest.json.
-    #         This becomes the default lower bound for the bisect range.
-    # ==================================================================
+    # Stage 2 — read the current dep rev from lake-manifest.json.
     - name: Read current pin
       id: read-pin
       shell: bash
       env:
-        DEP_NAME:    ${{ inputs.dependency }}
-        FROM_INPUT:  ${{ inputs.from }}
+        DEP_NAME: ${{ inputs.dependency }}
+        FROM_INPUT: ${{ inputs.from }}
         PROJECT_DIR: ${{ inputs.project-dir }}
-      run: |
-        set -euo pipefail
-        MANIFEST="${PROJECT_DIR}/lake-manifest.json"
-        CURRENT_PIN=""
-        GIT_URL=""
-        if [ -f "$MANIFEST" ]; then
-          CURRENT_PIN=$(jq -r --arg dep "$DEP_NAME" \
-            '.packages[] | select(.name==$dep) | .rev // empty' \
-            "$MANIFEST" | head -1)
-          GIT_URL=$(jq -r --arg dep "$DEP_NAME" \
-            '.packages[] | select(.name==$dep) | .url // empty' \
-            "$MANIFEST" | head -1)
-        fi
-        echo "previous_pin=${CURRENT_PIN}" >> "$GITHUB_OUTPUT"
-        echo "git_url=${GIT_URL}"          >> "$GITHUB_OUTPUT"
-        # Prefer the explicit from-input; fall back to the manifest pin.
-        RESOLVED_FROM="${FROM_INPUT:-$CURRENT_PIN}"
-        echo "resolved_from=${RESOLVED_FROM}" >> "$GITHUB_OUTPUT"
+      run: ${{ github.action_path }}/scripts/read-pin.sh
 
-    # ==================================================================
-    # Stage 3: Remove any stale hopscotch session from a previous run.
-    # ==================================================================
-    - name: Clean stale session
-      shell: bash
-      env:
-        PROJECT_DIR: ${{ inputs.project-dir }}
-      run: hopscotch clean --project-dir "$PROJECT_DIR" 2>/dev/null || true
-
-    # ==================================================================
-    # Stage 4: Run hopscotch dep.
-    #
-    # Exit codes:
-    #   0  → all commits passed (full range green)
-    #   1  → culprit / boundary found (NOT a step failure)
-    #   2+ → tool error (step fails)
-    # ==================================================================
-    - name: Run hopscotch dep
+    # Stage 3 — run hopscotch (clean stale session + invoke `hopscotch dep`).
+    - name: Run hopscotch
       id: run
       shell: bash
       env:
-        DEP_NAME:       ${{ inputs.dependency }}
-        FROM_REF:       ${{ steps.read-pin.outputs.resolved_from }}
-        TO_REF:         ${{ inputs.to }}
-        PROJECT_DIR:    ${{ inputs.project-dir }}
-        EXTRA_ARGS:     ${{ inputs.additional-args }}
-        GITHUB_TOKEN:   ${{ inputs.github-token }}
-      run: |
-        set -uo pipefail
+        DEP_NAME: ${{ inputs.dependency }}
+        FROM_REF: ${{ steps.read-pin.outputs.resolved_from }}
+        TO_REF: ${{ inputs.to }}
+        PROJECT_DIR: ${{ inputs.project-dir }}
+        EXTRA_ARGS: ${{ inputs.extra-args }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: ${{ github.action_path }}/scripts/run-hopscotch.sh
 
-        ARGS=("dep" "$DEP_NAME"
-              "--project-dir"    "$PROJECT_DIR"
-              "--keep-last-good")
-        [ -n "$FROM_REF" ] && ARGS+=("--from" "$FROM_REF")
-        [ -n "$TO_REF"   ] && ARGS+=("--to"   "$TO_REF")
-
-        # Append any extra user-supplied flags (word-split intentional).
-        # shellcheck disable=SC2206
-        read -r -a EXTRA <<< "$EXTRA_ARGS"
-        ARGS+=("${EXTRA[@]}")
-
-        echo "::group::hopscotch output"
-        set +e
-        hopscotch "${ARGS[@]}"
-        EXIT_CODE=$?
-        set -e
-        echo "::endgroup::"
-
-        echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-        if [ "$EXIT_CODE" -ge 2 ]; then
-          echo "::error::hopscotch exited with error code $EXIT_CODE (tool error)."
-          exit "$EXIT_CODE"
-        fi
-
-    # ==================================================================
-    # Stage 5: Parse .lake/hopscotch/state.json into structured outputs.
-    # ==================================================================
+    # Stage 4 — parse .lake/hopscotch/state.json into structured outputs.
     - name: Parse hopscotch state
       id: parse
       shell: bash
       env:
-        DEP_NAME:     ${{ inputs.dependency }}
-        PROJECT_DIR:  ${{ inputs.project-dir }}
+        DEP_NAME: ${{ inputs.dependency }}
+        PROJECT_DIR: ${{ inputs.project-dir }}
         PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
-        EXIT_CODE:    ${{ steps.run.outputs.exit_code }}
-        MAX_WINDOW:    ${{ inputs.max-window-size }}
-      run: |
-        set -euo pipefail
+        EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+        MAX_WINDOW: ${{ inputs.max-window-size }}
+      run: ${{ github.action_path }}/scripts/parse-state.sh
 
-        STATE="${PROJECT_DIR}/.lake/hopscotch/state.json"
-        SUMMARY="${PROJECT_DIR}/.lake/hopscotch/summary.md"
-        MANIFEST="${PROJECT_DIR}/lake-manifest.json"
-
-        if [ ! -f "$STATE" ]; then
-          echo "::error::state.json not found — hopscotch did not write state."
-          echo "outcome=tool-error" >> "$GITHUB_OUTPUT"
-          exit 1
-        fi
-
-        STATUS=$(jq -r '.status' "$STATE")
-        RUN_MODE=$(jq -r '.runMode' "$STATE")
-        ITEMS_COUNT=$(jq -r '.items | length' "$STATE")
-
-        if [ "$ITEMS_COUNT" -gt "$MAX_WINDOW" ]; then
-          echo "::error::Commit range (${ITEMS_COUNT} commits) exceeds max-window-size (${MAX_WINDOW}). Increase max-window-size or bump the pin manually."
-          echo "outcome=tool-error" >> "$GITHUB_OUTPUT"
-          exit 1
-        fi
-
-        CULPRIT=""
-        LAST_GOOD=""
-        TARGET_COMMIT=$(jq -r '.items[-1] // ""' "$STATE")
-
-        if [ "$STATUS" = "completed" ]; then
-          OUTCOME="passed"
-          LAST_GOOD="$TARGET_COMMIT"
-        elif [ "$STATUS" = "failed" ]; then
-          OUTCOME="incompatible"
-          if [ "$RUN_MODE" = "bisect" ]; then
-            BAD_IDX=$(jq -r '.bisect.knownBadIndex'   "$STATE")
-            GOOD_IDX=$(jq -r '.bisect.knownGoodIndex' "$STATE")
-            CULPRIT=$(jq -r --argjson i "$BAD_IDX"   '.items[$i]' "$STATE")
-            LAST_GOOD=$(jq -r --argjson i "$GOOD_IDX" '.items[$i]' "$STATE")
-          else
-            CULPRIT=$(jq -r '.currentCommit // ""'          "$STATE")
-            LAST_GOOD=$(jq -r '.lastSuccessfulCommit // ""' "$STATE")
-          fi
-        else
-          OUTCOME="tool-error"
-        fi
-
-        # Read the pin that hopscotch left in lake-manifest.json.
-        NEW_PIN="$PREVIOUS_PIN"
-        if [ -f "$MANIFEST" ]; then
-          NEW_PIN=$(jq -r --arg dep "$DEP_NAME" \
-            '.packages[] | select(.name==$dep) | .rev // empty' \
-            "$MANIFEST" | head -1)
-        fi
-
-        # No-op detection: whole range passed and pin is unchanged.
-        if [ "$OUTCOME" = "passed" ] && [ "$NEW_PIN" = "$PREVIOUS_PIN" ] && [ -n "$PREVIOUS_PIN" ]; then
-          OUTCOME="skipped"
-        fi
-
-        SUMMARY_MD=""
-        [ -f "$SUMMARY" ] && SUMMARY_MD=$(cat "$SUMMARY")
-
-        {
-          echo "outcome=$OUTCOME"
-          echo "culprit_commit=$CULPRIT"
-          echo "last_good_commit=$LAST_GOOD"
-          echo "target_commit=$TARGET_COMMIT"
-          echo "new_pin=$NEW_PIN"
-          echo "items_count=$ITEMS_COUNT"
-          echo "summary_md<<SUMMARY_EOF"
-          printf '%s\n' "$SUMMARY_MD"
-          echo "SUMMARY_EOF"
-        } >> "$GITHUB_OUTPUT"
-
-    # ==================================================================
-    # Stage 6: Fetch commit metadata to build the bump PR description.
-    #         Skipped when there is nothing to bump or open-pr is false.
-    # ==================================================================
-    - name: Fetch commit descriptions
-      id: descriptions
-      if: >-
-        steps.parse.outputs.outcome != 'skipped' &&
-        steps.parse.outputs.outcome != 'tool-error' &&
-        steps.parse.outputs.new_pin != '' &&
-        steps.parse.outputs.new_pin != steps.read-pin.outputs.previous_pin &&
-        inputs.open-pr == 'true'
+    # Stage 5 — compute the "should we attempt a PR?" boolean once.
+    - name: Decide whether to open PR
+      id: should-open-pr
       shell: bash
       env:
-        GH_TOKEN:     ${{ inputs.github-token }}
-        NEW_PIN:      ${{ steps.parse.outputs.new_pin }}
+        OUTCOME: ${{ steps.parse.outputs.outcome }}
+        NEW_PIN: ${{ steps.parse.outputs.new_pin }}
         PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
-        DEP_NAME:     ${{ inputs.dependency }}
-        GIT_URL:      ${{ steps.read-pin.outputs.git_url }}
-        OUTCOME:      ${{ steps.parse.outputs.outcome }}
-        CULPRIT:      ${{ steps.parse.outputs.culprit_commit }}
-        PR_TITLE_INPUT: ${{ inputs.pr-title }}
-        PR_BODY_INPUT:  ${{ inputs.pr-body }}
-      run: |
-        set -euo pipefail
+        OPEN_PR: ${{ inputs.open-pr }}
+      run: ${{ github.action_path }}/scripts/should-open-pr.sh
 
-        # Derive owner/repo from git-url for commit hyperlinks.
-        REPO=""
-        if [ -n "$GIT_URL" ]; then
-          REPO=$(echo "$GIT_URL" \
-            | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|' \
-            || true)
-        fi
-
-        fetch_subject() {
-          local sha="$1"
-          if [ -z "$sha" ] || [ -z "$REPO" ]; then echo ""; return; fi
-          gh api "repos/${REPO}/commits/${sha}" \
-            --jq '.commit.message | split("\n")[0]' 2>/dev/null || true
-        }
-
-        commit_ref() {
-          local sha="$1" repo="$2" short="${1:0:7}"
-          if [ -n "$repo" ] && [ -n "$sha" ]; then
-            echo "[\`${short}\`](https://github.com/${repo}/commit/${sha})"
-          elif [ -n "$sha" ]; then
-            echo "\`${short}\`"
-          else
-            echo ""
-          fi
-        }
-
-        NEW_SUBJECT=$(fetch_subject "$NEW_PIN")
-        PREV_SUBJECT=$(fetch_subject "$PREVIOUS_PIN")
-
-        NEW_SHORT="${NEW_PIN:0:7}"
-        PREV_SHORT="${PREVIOUS_PIN:0:7}"
-
-        # PR title (use override if provided).
-        if [ -n "$PR_TITLE_INPUT" ]; then
-          PR_TITLE="$PR_TITLE_INPUT"
-        else
-          PR_TITLE="chore: bump ${DEP_NAME} to ${NEW_SHORT}"
-          [ -n "$NEW_SUBJECT" ] && PR_TITLE="${PR_TITLE}: ${NEW_SUBJECT}"
-        fi
-
-        # Commit message (always auto-generated).
-        COMMIT_MSG="chore: bump ${DEP_NAME} to ${NEW_SHORT}"
-        [ -n "$NEW_SUBJECT" ] && COMMIT_MSG="${COMMIT_MSG}: ${NEW_SUBJECT}"
-
-        # PR body (use override if provided).
-        if [ -n "$PR_BODY_INPUT" ]; then
-          PR_BODY="$PR_BODY_INPUT"
-        else
-          TARGET_REF=$(commit_ref "$NEW_PIN" "$REPO")
-          PREV_REF=$(commit_ref "$PREVIOUS_PIN" "$REPO")
-
-          TARGET_LINE="Bump \`${DEP_NAME}\` to ${TARGET_REF:-\`${NEW_SHORT}\`}"
-          [ -n "$NEW_SUBJECT" ] && TARGET_LINE="${TARGET_LINE}: ${NEW_SUBJECT}"
-          PREV_LINE="Previously at: ${PREV_REF:-\`${PREV_SHORT}\`}"
-          [ -n "$PREV_SUBJECT" ] && PREV_LINE="${PREV_LINE}: ${PREV_SUBJECT}"
-
-          CULPRIT_NOTE=""
-          if [ "$OUTCOME" = "incompatible" ] && [ -n "$CULPRIT" ]; then
-            CULPRIT_REF=$(commit_ref "$CULPRIT" "$REPO")
-            CULPRIT_NOTE=$(printf '\n\n> **Note:** Upstream commit %s is the first known breaking commit. This PR bumps to the last passing revision before it.' "${CULPRIT_REF:-\`${CULPRIT:0:7}\`}")
-          fi
-
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          FOOTER="_Updated by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action) · [run](${RUN_URL})_"
-
-          PR_BODY=$(printf '%s\n%s%s\n\n%s' \
-            "$TARGET_LINE" \
-            "$PREV_LINE" \
-            "$CULPRIT_NOTE" \
-            "$FOOTER")
-        fi
-
-        {
-          echo "pr_title=${PR_TITLE}"
-          echo "commit_message=${COMMIT_MSG}"
-          echo "pr_body<<PR_BODY_EOF"
-          printf '%s\n' "$PR_BODY"
-          echo "PR_BODY_EOF"
-        } >> "$GITHUB_OUTPUT"
-
-    # ==================================================================
-    # Stage 7: Open or update the bump PR.
-    # ==================================================================
-    # Step 1: Check whether there are any file changes to commit.
-    # ------------------------------------------------------------------
-    - name: Check for working-tree changes
-      if: >-
-        steps.parse.outputs.outcome != 'skipped' &&
-        steps.parse.outputs.outcome != 'tool-error' &&
-        steps.parse.outputs.new_pin != '' &&
-        steps.parse.outputs.new_pin != steps.read-pin.outputs.previous_pin &&
-        inputs.open-pr == 'true'
-      id: check-changes
+    # Stage 6 — build the PR title / body / commit message.
+    - name: Compose PR content
+      id: descriptions
+      if: steps.should-open-pr.outputs.yes == 'true'
       shell: bash
-      run: |
-        if git diff --quiet && git diff --cached --quiet; then
-          echo "No file changes detected — nothing to commit."
-          echo "no_changes=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "no_changes=false" >> "$GITHUB_OUTPUT"
-        fi
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        NEW_PIN: ${{ steps.parse.outputs.new_pin }}
+        PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
+        DEP_NAME: ${{ inputs.dependency }}
+        GIT_URL: ${{ steps.read-pin.outputs.git_url }}
+        OUTCOME: ${{ steps.parse.outputs.outcome }}
+        CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
+      run: ${{ github.action_path }}/scripts/compose-pr-content.sh
 
-    # ------------------------------------------------------------------
-    # Step 2: Create the branch, commit, and force-push.
-    # ------------------------------------------------------------------
+    # Stage 7a — check working tree for changes.
+    - name: Check for working-tree changes
+      id: check-changes
+      if: steps.should-open-pr.outputs.yes == 'true'
+      shell: bash
+      run: ${{ github.action_path }}/scripts/check-changes.sh
+
+    # Stage 7b — commit + force-push.
     - name: Commit and push branch
-      id: commit-and-push
-      if: steps.check-changes.outputs.no_changes == 'false' && steps.check-changes.outcome == 'success'      
+      if: steps.should-open-pr.outputs.yes == 'true' && steps.check-changes.outputs.no_changes == 'false'
       shell: bash
       env:
         BRANCH: ${{ inputs.pr-branch }}
         COMMIT_MESSAGE: ${{ steps.descriptions.outputs.commit_message }}
-      run: |
-        set -euo pipefail
-        MSG="${COMMIT_MESSAGE:-chore: dependency update}"
-        git config user.name  "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git checkout -B "$BRANCH"
-        git add -A
-        git commit -m "$MSG"
-        git push --force origin "$BRANCH"
+      run: ${{ github.action_path }}/scripts/commit-and-push.sh
 
-    # ------------------------------------------------------------------
-    # Step 3: Create or update the PR.
-    # ------------------------------------------------------------------
+    # Stage 7c — create or update PR.
     - name: Create or update PR
       id: create-or-update-pr
-      if: steps.check-changes.outputs.no_changes == 'false'
+      if: steps.should-open-pr.outputs.yes == 'true' && steps.check-changes.outputs.no_changes == 'false'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
@@ -570,105 +238,23 @@ runs:
         TITLE: ${{ steps.descriptions.outputs.pr_title }}
         BODY: ${{ steps.descriptions.outputs.pr_body }}
         LABELS: ${{ inputs.pr-labels }}
-      run: |
-        set -euo pipefail
+        REVIEWERS: ${{ inputs.reviewers }}
+      run: ${{ github.action_path }}/scripts/create-or-update-pr.sh
 
-        PR_TITLE="${TITLE:-chore: dependency update}"
-
-        if [ -n "$BODY" ]; then
-          PR_BODY="$BODY"
-        else
-          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          TODAY=$(date -u +"%Y-%m-%d")
-          FOOTER="_This PR was last updated on ${TODAY} by [this workflow run](${RUN_URL}). It is an automated bump using [hopscotch-action](https://github.com/leanprover-community/hopscotch-action)._"
-        fi
-
-        BASE_ARGS=()
-        if [ -n "$BASE" ]; then
-          BASE_ARGS=(--base "$BASE")
-        fi
-
-        LABEL_ARGS=()
-        if [ -n "$LABELS" ]; then
-          IFS=',' read -ra LABEL_LIST <<< "$LABELS"
-          for label in "${LABEL_LIST[@]}"; do
-            trimmed="${label#"${label%%[![:space:]]*}"}"
-            trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
-            if [ -n "$trimmed" ]; then
-              gh label create "$trimmed" --color eec9fd >/dev/null 2>&1 || true
-              LABEL_ARGS+=(--label "$trimmed")
-            fi
-          done
-        fi
-
-        EXISTING=$(gh pr list \
-          --head "$BRANCH" \
-          --state open \
-          --json number,url \
-          --jq '.[0] // empty')
-
-        if [ -n "$EXISTING" ]; then
-          PR_NUMBER=$(echo "$EXISTING" | jq -r '.number')
-          PR_URL=$(echo "$EXISTING" | jq -r '.url')
-          gh pr edit "$PR_NUMBER" --title "$PR_TITLE" --body "$PR_BODY"
-          echo "PR #${PR_NUMBER} updated: $PR_URL"
-          echo "pr_action=updated" >> "$GITHUB_OUTPUT"
-        else
-          PR_URL=$(gh pr create \
-            --head "$BRANCH" \
-            "${BASE_ARGS[@]}" \
-            --title "$PR_TITLE" \
-            --body "$PR_BODY" \
-            "${LABEL_ARGS[@]}")
-          PR_NUMBER="${PR_URL##*/}"
-          echo "PR #${PR_NUMBER} created: $PR_URL"
-          echo "pr_action=created" >> "$GITHUB_OUTPUT"
-        fi
-
-        echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
-        echo "pr_url=$PR_URL"       >> "$GITHUB_OUTPUT"
-
-    # ------------------------------------------------------------------
-    # Final step: consolidate outputs.
-    # ------------------------------------------------------------------
+    # Stage 7d — consolidate PR outputs (runs always).
     - name: Resolve outputs
       id: resolve-outputs
       if: always()
       shell: bash
       env:
-        PR_ATTEMPTED: ${{ 
-                        steps.parse.outputs.outcome != 'skipped' &&
-                        steps.parse.outputs.outcome != 'tool-error' &&
-                        steps.parse.outputs.new_pin != '' &&
-                        steps.parse.outputs.new_pin != steps.read-pin.outputs.previous_pin &&
-                        inputs.open-pr == 'true'
-                      }}
+        SHOULD_OPEN_PR: ${{ steps.should-open-pr.outputs.yes }}
         NO_CHANGES: ${{ steps.check-changes.outputs.no_changes }}
-        PR_NUMBER:  ${{ steps.create-or-update-pr.outputs.pr_number }}
-        PR_URL:     ${{ steps.create-or-update-pr.outputs.pr_url }}
-        PR_ACTION:  ${{ steps.create-or-update-pr.outputs.pr_action }}
-      run: |
-        if [ "${PR_ATTEMPTED:-}" != "true" ]; then
-          echo "action=none" >> "$GITHUB_OUTPUT"
-          echo "pr_number="  >> "$GITHUB_OUTPUT"
-          echo "pr_url="     >> "$GITHUB_OUTPUT"
-        elif [ "${NO_CHANGES:-}" = "true" ]; then
-          echo "action=none" >> "$GITHUB_OUTPUT"
-          echo "pr_number="  >> "$GITHUB_OUTPUT"
-          echo "pr_url="     >> "$GITHUB_OUTPUT"
-        else
-          echo "action=${PR_ACTION:-created}"   >> "$GITHUB_OUTPUT"
-          echo "pr_number=${PR_NUMBER:-}"        >> "$GITHUB_OUTPUT"
-          echo "pr_url=${PR_URL:-}"              >> "$GITHUB_OUTPUT"
-        fi
+        PR_NUMBER: ${{ steps.create-or-update-pr.outputs.pr_number }}
+        PR_URL: ${{ steps.create-or-update-pr.outputs.pr_url }}
+        PR_ACTION: ${{ steps.create-or-update-pr.outputs.pr_action }}
+      run: ${{ github.action_path }}/scripts/resolve-outputs.sh
 
-
-    # ==================================================================
-    # Stage 8: Write the job summary and manage the tracking issue.
-    # ==================================================================
-    # ------------------------------------------------------------------
-    # Step 1: Write the job summary.
-    # ------------------------------------------------------------------
+    # Stage 8a — job summary.
     - name: Write job summary
       if: always()
       shell: bash
@@ -683,61 +269,9 @@ runs:
         PR_URL: ${{ steps.resolve-outputs.outputs.pr_url }}
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         SUMMARY_MD: ${{ steps.parse.outputs.summary_md }}
-      run: |
-        set -euo pipefail
+      run: ${{ github.action_path }}/scripts/write-summary.sh
 
-        commit_link() {
-          local sha="$1"
-          local short="${sha:0:7}"
-          if [ -n "$GIT_URL" ] && [ -n "$sha" ]; then
-            REPO=$(echo "$GIT_URL" | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|')
-            echo "[\`${short}\`](https://github.com/${REPO}/commit/${sha})"
-          elif [ -n "$sha" ]; then
-            echo "\`${short}\`"
-          else
-            echo "—"
-          fi
-        }
-
-        {
-          echo "## Hopscotch: \`${DEP_NAME}\`"
-          echo ""
-          case "$OUTCOME" in
-            passed)
-              echo "**Outcome:** ✅ All commits passed."
-              [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ] && \
-                echo "**Bumped to:** $(commit_link "$NEW_PIN")"
-              ;;
-            incompatible)
-              echo "**Outcome:** ❌ Culprit found."
-              echo ""
-              [ -n "$CULPRIT" ] && echo "**First failing commit:** $(commit_link "$CULPRIT")"
-              [ -n "$LAST_GOOD" ] && echo "**Last good commit:** $(commit_link "$LAST_GOOD")"
-              [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ] && \
-                echo "**Bumped pin to:** $(commit_link "$NEW_PIN")"
-              ;;
-            skipped)
-              echo "**Outcome:** ⏭ Already at target — nothing to do."
-              ;;
-            tool-error)
-              echo "**Outcome:** ⚠️ Tool error — see logs above."
-              ;;
-          esac
-          echo ""
-          [ -n "$PREV_PIN" ]  && echo "**Previous pin:** \`${PREV_PIN:0:7}\`"
-          [ -n "$TARGET" ]    && echo "**Target commit:** \`${TARGET:0:7}\`"
-          [ -n "$PR_URL" ]    && echo "**Bump PR:** $PR_URL"
-          if [ -n "$SUMMARY_MD" ]; then
-            echo ""
-            echo "### hopscotch summary"
-            echo ""
-            echo "$SUMMARY_MD"
-          fi
-        } >> "$GITHUB_STEP_SUMMARY"
-
-    # ------------------------------------------------------------------
-    # Step 2: Manage the per-dependency tracking issue.
-    # ------------------------------------------------------------------
+    # Stage 8b — manage the per-dependency tracking issue.
     - name: Manage tracking issue
       id: issue
       if: inputs.open-issue == 'true'
@@ -751,109 +285,4 @@ runs:
         TARGET: ${{ steps.parse.outputs.target_commit }}
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         ISSUE_LABELS: ${{ inputs.issue-labels }}
-      run: |
-        set -euo pipefail
-
-        # Stable body marker used to find the tracking issue across runs.
-        MARKER="<!-- hopscotch-tracking:${DEP_NAME} -->"
-        ISSUE_TITLE="Hopscotch: ${DEP_NAME} regression detected"
-        RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-        # Static label applied to every tracking issue so the lookup can
-        # filter server-side instead of scanning all repo issues by body text.
-        HOPSCOTCH_LABEL="hopscotch"
-        gh label create "$HOPSCOTCH_LABEL" \
-          --color "eec9fd" \
-          --description "Managed by hopscotch-action" 2>/dev/null || true
-
-        # Helper: generate a commit link or short SHA.
-        commit_link() {
-          local sha="$1"
-          local short="${sha:0:7}"
-          if [ -n "$GIT_URL" ] && [ -n "$sha" ]; then
-            REPO=$(echo "$GIT_URL" | sed -E 's|.*github\.com[:/]([^/]+/[^/]+?)(\.git)?$|\1|')
-            printf '[`%s`](https://github.com/%s/commit/%s)' "$short" "$REPO" "$sha"
-          elif [ -n "$sha" ]; then
-            printf '`%s`' "$short"
-          fi
-        }
-
-        # Find an existing open tracking issue. Label pre-filters to the small
-        # set of hopscotch issues; jq then matches the per-dependency marker.
-        ISSUE_LINE=$(gh issue list \
-          --label "$HOPSCOTCH_LABEL" \
-          --state open \
-          --json number,url,body \
-          2>/dev/null \
-          | jq -r --arg m "hopscotch-tracking:${DEP_NAME}" \
-              '.[] | select(.body | contains($m)) | "\(.number) \(.url)"' \
-          | head -1 || true)
-
-        ISSUE_NUMBER=$(echo "$ISSUE_LINE" | awk 'NF{print $1}')
-        ISSUE_URL=$(echo "$ISSUE_LINE"    | awk 'NF{print $2}')
-
-        if [ "$OUTCOME" = "incompatible" ]; then
-          # Build the issue body.
-          CULPRIT_LINE=""
-          [ -n "$CULPRIT" ] && CULPRIT_LINE="**First failing commit:** $(commit_link "$CULPRIT")"
-          LAST_GOOD_LINE=""
-          [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="**Last known-good commit:** $(commit_link "$LAST_GOOD")"
-          TARGET_LINE=""
-          [ -n "$TARGET" ] && TARGET_LINE="**Target ref tested:** \`${TARGET:0:7}\`"
-
-          ISSUE_BODY=$(printf '%s\n\nThe \`%s\` dependency has a breaking upstream commit.\n\n%s\n%s\n%s\n\n[View run](%s)\n\n%s' \
-            "$MARKER" \
-            "$DEP_NAME" \
-            "$CULPRIT_LINE" \
-            "$LAST_GOOD_LINE" \
-            "$TARGET_LINE" \
-            "$RUN_URL" \
-            "_Managed by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action). This issue is updated automatically on each run and closed when the regression is resolved._")
-
-          # Build label args.
-          LABEL_ARGS=()
-          if [ -n "$ISSUE_LABELS" ]; then
-            IFS=',' read -ra LABEL_LIST <<< "$ISSUE_LABELS"
-            for label in "${LABEL_LIST[@]}"; do
-              trimmed="${label#"${label%%[![:space:]]*}"}"
-              trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
-              if [ -n "$trimmed" ]; then
-                gh label create "$trimmed" --color eec9fd >/dev/null 2>&1 || true
-                LABEL_ARGS+=(--label "$trimmed")
-              fi
-            done
-          fi
-
-          if [ -n "$ISSUE_NUMBER" ]; then
-            # Update the existing issue (--add-label is idempotent and backfills
-            # the static label on issues created before this logic was added).
-            gh issue edit "$ISSUE_NUMBER" \
-              --title "$ISSUE_TITLE" \
-              --body "$ISSUE_BODY" \
-              --add-label "$HOPSCOTCH_LABEL"
-            echo "Tracking issue #${ISSUE_NUMBER} updated."
-          else
-            # Create a new tracking issue.
-            ISSUE_URL=$(gh issue create \
-              --title "$ISSUE_TITLE" \
-              --body "$ISSUE_BODY" \
-              --label "$HOPSCOTCH_LABEL" \
-              "${LABEL_ARGS[@]}")
-            ISSUE_NUMBER="${ISSUE_URL##*/}"
-            echo "Tracking issue #${ISSUE_NUMBER} created: $ISSUE_URL"
-          fi
-
-        elif [ "$OUTCOME" = "passed" ]; then
-          if [ -n "$ISSUE_NUMBER" ]; then
-            # Close the tracking issue and leave a recovery comment.
-            RECOVERY_MSG=$(printf '✅ **Regression resolved.**\n\nThe downstream built successfully against the upstream. Closing this issue.\n\n[View run](%s)' "$RUN_URL")
-            gh issue comment "$ISSUE_NUMBER" --body "$RECOVERY_MSG"
-            gh issue close "$ISSUE_NUMBER"
-            echo "Tracking issue #${ISSUE_NUMBER} closed (regression resolved)."
-          fi
-          ISSUE_NUMBER=""
-          ISSUE_URL=""
-        fi
-
-        echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
-        echo "issue_url=${ISSUE_URL}"       >> "$GITHUB_OUTPUT"
+      run: ${{ github.action_path }}/scripts/manage-issue.sh

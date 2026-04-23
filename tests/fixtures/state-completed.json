@@ -1,0 +1,10 @@
+{
+  "status": "completed",
+  "runMode": "bisect",
+  "items": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "cccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "bisect": {}
+}

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stub for `gh`. Responses driven by the GH_STUB_MODE env var so each test
+# can dictate the fake API behavior it needs.
+#
+#   GH_STUB_MODE=commit-subject   — echoes "Fake commit subject line" for any
+#                                   `gh api repos/.../commits/<sha> --jq ...`
+#   GH_STUB_MODE=empty            — returns empty output (no commit subject)
+#   (default)                     — no-op, returns 0
+
+case "${GH_STUB_MODE:-noop}" in
+  commit-subject)
+    # Match the shape used by compose-pr-content.sh's fetch_subject.
+    if [[ "$*" == *"api repos/"*"/commits/"* ]]; then
+      echo "Fake commit subject line"
+      exit 0
+    fi
+    exit 0
+    ;;
+  empty)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac

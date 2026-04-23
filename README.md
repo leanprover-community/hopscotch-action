@@ -9,7 +9,6 @@ A reusable GitHub Action that wraps the [`hopscotch`](https://github.com/leanpro
 2. **Open a bump PR**. When the build passes (or after finding the last-good commit), automatically open or update a pull request to advance the manifest pin.
 3. **Track incompatibilities with an issue**. After finding a culprit, automatically open or update an issue to report the breaking commit.
 
-
 Note: for repeatability, the default version of `hopscotch` used by this action is fixed, currently at **v1.3.0**. You can configure the version (to `latest` or otherwise) using the `hopscotch-version` parameter described below.
 
 ## Quickstart
@@ -81,7 +80,7 @@ When both `open-issue: true` and `open-pr: true` (the defaults), the action main
 | `from` | *(manifest pin)* | Exclusive lower bound for the bisect range. Defaults to the current rev in `lake-manifest.json`. |
 | `to` | *(upstream HEAD)* | Inclusive upper bound. Defaults to the upstream default-branch HEAD. |
 | `project-dir` | `.` | Path to the Lean project root. |
-| `additional-args` | `` | Extra arguments passed verbatim to `hopscotch dep`, e.g. `--scan-mode linear --git-url <url>`. |
+| `extra-args` | `` | Extra arguments passed verbatim to `hopscotch dep`. Single- or multi-line; each line is word-split on whitespace. |
 | `hopscotch-version` | `v1.3.0` | Release tag (e.g. `v1.3.0`) or `"latest"` to always use the newest release. |
 | `max-window-size` | `3000` | Abort if the range contains more commits than this. |
 | | | |
@@ -90,8 +89,7 @@ When both `open-issue: true` and `open-pr: true` (the defaults), the action main
 | `pr-branch` | `hopscotch/bump` | Branch for the bump PR (force-pushed each run). |
 | `pr-base` | *(default branch)* | Base branch for the bump PR. |
 | `pr-labels` | `` | Comma-separated labels for the bump PR. |
-| `pr-title` | *(auto)* | Override the auto-generated PR title. |
-| `pr-body` | *(auto)* | Override the auto-generated PR body. |
+| `reviewers` | `` | Comma-separated GitHub users or team slugs to request review from. |
 | | | |
 | | | |
 | `open-issue` | `true` | Open a tracking GitHub issue on culprit / recovery. |
@@ -164,6 +162,40 @@ Remove permissions you don't need (e.g. omit `issues: write` and set `open-issue
   run: |
     echo "Broken by: ${{ steps.hs.outputs.culprit-commit }}"
     echo "Last good: ${{ steps.hs.outputs.last-good-commit }}"
+```
+
+### Multi-line extra-args
+
+```yaml
+- uses: leanprover-community/hopscotch-action@v1
+  with:
+    dependency: mathlib
+    extra-args: |
+      --scan-mode linear
+      --allow-dirty-workspace
+```
+
+## Development
+
+The action is a composite of small bash scripts under `scripts/`; each step in
+`action.yml` is a thin shim that sets env vars and invokes one script.
+Non-trivial scripts are unit-tested with [bats](https://github.com/bats-core/bats-core).
+
+```
+scripts/
+  *.sh                     # one script per stage
+  lib/                     # shared helpers (commit links, label handling, ...)
+tests/
+  *.bats                   # bats test suites
+  fixtures/                # sample state.json / lake-manifest.json for tests
+  stubs/                   # stand-in executables for gh, git, etc.
+```
+
+Run the test suite locally:
+
+```
+bats tests/
+shellcheck scripts/*.sh scripts/lib/*.sh
 ```
 
 ## Platform support
