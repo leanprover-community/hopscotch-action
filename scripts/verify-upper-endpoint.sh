@@ -46,6 +46,10 @@ VERIFY_EXIT=$?
 set -e
 endgroup
 
+# Restore the working tree: hopscotch rewrites lake-manifest.json during the
+# probe, which would cause the main bisect run to fail with "dirty workspace".
+git -C "$PROJECT_DIR" restore .
+
 if [ "$VERIFY_EXIT" -eq 0 ]; then
   log "Upper endpoint passes — downstream is healthy; bisect skipped."
   echo "upper_endpoint_sha=$UPPER_SHA" >> "$GITHUB_OUTPUT"
