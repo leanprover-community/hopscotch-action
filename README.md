@@ -9,7 +9,7 @@ A reusable GitHub Action that wraps the [`hopscotch`](https://github.com/leanpro
 2. **Open a bump PR**. When the build passes (or after finding the last-good commit), automatically open or update a pull request to advance the manifest pin.
 3. **Track incompatibilities with an issue**. After finding a culprit, automatically open or update an issue to report the breaking commit.
 
-Note: for repeatability, the default version of `hopscotch` used by this action is fixed, currently at **v1.3.0**. You can configure the version (to `latest` or otherwise) using the `hopscotch-version` parameter described below.
+Note: for repeatability, the default version of `hopscotch` used by this action is fixed, currently at **v1.4.0**. You can configure the version (to `latest` or otherwise) using the `hopscotch-version` parameter described below.
 
 ## Quickstart
 
@@ -81,7 +81,7 @@ When both `open-issue: true` and `open-pr: true` (the defaults), the action main
 | `to` | *(upstream HEAD)* | Inclusive upper bound. Defaults to the upstream default-branch HEAD. |
 | `project-dir` | `.` | Path to the Lean project root. |
 | `extra-args` | `` | Extra arguments passed verbatim to `hopscotch dep`. Single- or multi-line; each line is word-split on whitespace. |
-| `hopscotch-version` | `v1.3.0` | Release tag (e.g. `v1.3.0`) or `"latest"` to always use the newest release. |
+| `hopscotch-version` | `v1.4.0` | Release tag (e.g. `v1.4.0`) or `"latest"` to always use the newest release. |
 | `max-window-size` | `3000` | Abort if the range contains more commits than this. |
 | | | |
 | | | |

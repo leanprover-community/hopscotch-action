@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "status": "fullySuccessful",
+  "mode": "bisect",
+  "exitCode": 0,
+  "strategyScope": "mathlib",
+  "projectDir": "/tmp/project",
+  "items": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "cccccccccccccccccccccccccccccccccccccccc"
+  ],
+  "firstFailingCommit": null,
+  "lastSuccessfulCommit": "cccccccccccccccccccccccccccccccccccccccc",
+  "currentCommit": null,
+  "failureStage": null,
+  "nextIndex": 2,
+  "culpritLogPath": null,
+  "lastLogPath": null,
+  "logsDir": "/tmp/project/.lake/hopscotch/logs",
+  "summaryPath": "/tmp/project/.lake/hopscotch/summary.md",
+  "bisect": {
+    "knownGoodIndex": 0,
+    "knownBadIndex": 2,
+    "knownGoodCommit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "knownBadCommit": "cccccccccccccccccccccccccccccccccccccccc",
+    "knownGoodWasProbed": false,
+    "verifiedBad": false,
+    "probeResults": [
+      {
+        "index": 2,
+        "commit": "cccccccccccccccccccccccccccccccccccccccc",
+        "outcome": "success",
+        "stage": null,
+        "logPath": null
+      }
+    ]
+  },
+  "updatedAt": "2026-04-24T14:00:00Z"
+}

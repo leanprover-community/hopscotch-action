@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "status": "stopped",
+  "mode": "linear",
+  "exitCode": 1,
+  "strategyScope": "mathlib",
+  "projectDir": "/tmp/project",
+  "items": [
+    "1111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222",
+    "3333333333333333333333333333333333333333"
+  ],
+  "firstFailingCommit": "3333333333333333333333333333333333333333",
+  "lastSuccessfulCommit": "2222222222222222222222222222222222222222",
+  "currentCommit": "3333333333333333333333333333333333333333",
+  "failureStage": "lake build",
+  "nextIndex": 2,
+  "culpritLogPath": "/tmp/project/.lake/hopscotch/logs/culprit/0-2-33-build.log",
+  "lastLogPath": "/tmp/project/.lake/hopscotch/logs/0-2-33-build.log",
+  "logsDir": "/tmp/project/.lake/hopscotch/logs",
+  "summaryPath": "/tmp/project/.lake/hopscotch/summary.md",
+  "bisect": null,
+  "updatedAt": "2026-04-24T14:00:00Z"
+}

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "status": "stopped",
+  "mode": "bisect",
+  "exitCode": 1,
+  "strategyScope": "mathlib",
+  "projectDir": "/tmp/project",
+  "items": [
+    "1111111111111111111111111111111111111111",
+    "2222222222222222222222222222222222222222",
+    "3333333333333333333333333333333333333333",
+    "4444444444444444444444444444444444444444",
+    "5555555555555555555555555555555555555555"
+  ],
+  "firstFailingCommit": "3333333333333333333333333333333333333333",
+  "lastSuccessfulCommit": "2222222222222222222222222222222222222222",
+  "currentCommit": "3333333333333333333333333333333333333333",
+  "failureStage": "lake build",
+  "nextIndex": 2,
+  "culpritLogPath": "/tmp/project/.lake/hopscotch/logs/culprit/0-2-33-build.log",
+  "lastLogPath": "/tmp/project/.lake/hopscotch/logs/0-2-33-build.log",
+  "logsDir": "/tmp/project/.lake/hopscotch/logs",
+  "summaryPath": "/tmp/project/.lake/hopscotch/summary.md",
+  "bisect": {
+    "knownGoodIndex": 1,
+    "knownBadIndex": 2,
+    "knownGoodCommit": "2222222222222222222222222222222222222222",
+    "knownBadCommit": "3333333333333333333333333333333333333333",
+    "knownGoodWasProbed": true,
+    "verifiedBad": true,
+    "probeResults": [
+      {
+        "index": 4,
+        "commit": "5555555555555555555555555555555555555555",
+        "outcome": "failure",
+        "stage": "lake build",
+        "logPath": "/tmp/project/.lake/hopscotch/logs/0-4-55-build.log"
+      },
+      {
+        "index": 2,
+        "commit": "3333333333333333333333333333333333333333",
+        "outcome": "failure",
+        "stage": "lake build",
+        "logPath": "/tmp/project/.lake/hopscotch/logs/0-2-33-build.log"
+      },
+      {
+        "index": 1,
+        "commit": "2222222222222222222222222222222222222222",
+        "outcome": "success",
+        "stage": null,
+        "logPath": null
+      }
+    ]
+  },
+  "updatedAt": "2026-04-24T14:00:00Z"
+}
