@@ -8,7 +8,7 @@
 #
 # Required env:
 #   GH_TOKEN, OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, GIT_URL,
-#   ISSUE_LABELS
+#   ISSUE_LABELS, CULPRIT_LOG_PATH
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -21,6 +21,7 @@ CULPRIT="${CULPRIT:-}"
 LAST_GOOD="${LAST_GOOD:-}"
 GIT_URL="${GIT_URL:-}"
 ISSUE_LABELS="${ISSUE_LABELS:-}"
+CULPRIT_LOG_PATH="${CULPRIT_LOG_PATH:-}"
 
 # Stable marker used to locate the tracking issue across runs.
 MARKER="<!-- hopscotch-tracking:${DEP_NAME} -->"
@@ -45,16 +46,51 @@ ISSUE_LINE=$(gh issue list \
 ISSUE_NUMBER=$(echo "$ISSUE_LINE" | awk 'NF{print $1}')
 ISSUE_URL=$(echo "$ISSUE_LINE"    | awk 'NF{print $2}')
 
-# Returns: "<sha7> — <subject> (<date> (<author>))"
+# Filter a culprit log file: drop successful-target lines (✔ …) and trace
+# lines (trace: .> …), which are noise. Reads from the file path in $1.
+filter_culprit_log() {
+  local line trimmed
+  while IFS= read -r line; do
+    trimmed="${line#"${line%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    case "$trimmed" in
+      "✔"*|"trace: .>"*) ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done < "$1"
+}
+
+# Build a collapsible <details> block for the culprit log, or return empty.
+build_log_block() {
+  local log_path="$1"
+  [ -z "$log_path" ] || [ ! -f "$log_path" ] && return 0
+  local filtered
+  filtered=$(filter_culprit_log "$log_path")
+  [ -z "$filtered" ] && return 0
+  printf $'<details>\n<summary>Build failure log</summary>\n\n```\n%s\n```\n\n</details>' "$filtered"
+}
+
+# Returns: "[`sha7`](https://github.com/repo/commit/sha) — <subject> (<date> (<author>))"
 fetch_commit_info() {
   local sha="$1"
   local repo="$2"
-  if [ -z "$sha" ] || [ -z "$repo" ]; then
-    echo "${sha:0:7}"; return
+  if [ -z "$sha" ]; then
+    echo "—"; return
   fi
-  gh api "repos/${repo}/commits/${sha}" \
-    --jq '"\(.sha[0:7]) — \(.commit.message | split("\n")[0]) (\(.commit.author.date[0:10]) (\(.commit.author.name)))"' \
-    2>/dev/null || echo "${sha:0:7}"
+  local short="${sha:0:7}"
+  if [ -z "$repo" ]; then
+    echo "\`${short}\`"; return
+  fi
+  local link="[\`${short}\`](https://github.com/${repo}/commit/${sha})"
+  local desc
+  desc=$(gh api "repos/${repo}/commits/${sha}" \
+    --jq '"\(.commit.message | split("\n")[0]) (\(.commit.author.date[0:10]) (\(.commit.author.name)))"' \
+    2>/dev/null) || true
+  if [ -n "$desc" ]; then
+    echo "${link} — ${desc}"
+  else
+    echo "$link"
+  fi
 }
 
 if [ "$OUTCOME" = "incompatible" ]; then
@@ -71,19 +107,21 @@ if [ "$OUTCOME" = "incompatible" ]; then
 In other words, this project can't advance to the tip of \`${DEP_NAME}\` without breaking."
 
   CULPRIT_LINE=""
-  [ -n "$CULPRIT" ] && CULPRIT_LINE="First incompatible \`${DEP_NAME}\` commit: \`${CULPRIT_INFO}\`."
+  [ -n "$CULPRIT" ] && CULPRIT_LINE="First incompatible \`${DEP_NAME}\` commit: ${CULPRIT_INFO}."
 
   LAST_GOOD_LINE=""
-  [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="Last-known-good \`${DEP_NAME}\` commit: \`${LAST_GOOD_INFO}\`."
+  [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="Last-known-good \`${DEP_NAME}\` commit: ${LAST_GOOD_INFO}."
 
   VERIFIED_BLOCK=""
   if [ -n "$DOWNSTREAM_SHA" ]; then
-    VERIFIED_BLOCK="Verified when ${DOWNSTREAM_REPO} was at: \`${DOWNSTREAM_INFO}\`.
+    VERIFIED_BLOCK="Verified when ${DOWNSTREAM_REPO} was at: ${DOWNSTREAM_INFO}.
 You can reproduce this break by:
 - updating the \`${DEP_NAME}\` rev field in your lakefile to \`${CULPRIT}\`
 - running \`lake update ${DEP_NAME}\`
 - running \`lake build\`"
   fi
+
+  LOG_BLOCK=$(build_log_block "$CULPRIT_LOG_PATH")
 
   FOOTER="_Managed by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action). This issue is updated automatically on each run and closed when the regression is resolved._"
 
@@ -96,6 +134,8 @@ ${CULPRIT_LINE}
 ${LAST_GOOD_LINE}
 
 ${VERIFIED_BLOCK}
+
+${LOG_BLOCK}
 
 ${FOOTER}"
 

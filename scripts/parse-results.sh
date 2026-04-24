@@ -61,9 +61,10 @@ if [ "$ITEMS_COUNT" -gt "$MAX_WINDOW" ]; then
   die "Commit range (${ITEMS_COUNT} commits) exceeds max-window-size (${MAX_WINDOW}). Increase max-window-size or bump the pin manually."
 fi
 
-TARGET_COMMIT=$(jq -r '.items[-1] // ""'           "$RESULTS")
-CULPRIT=$(jq -r       '.firstFailingCommit // ""'  "$RESULTS")
-LAST_GOOD=$(jq -r     '.lastSuccessfulCommit // ""' "$RESULTS")
+TARGET_COMMIT=$(jq -r    '.items[-1] // ""'          "$RESULTS")
+CULPRIT=$(jq -r          '.firstFailingCommit // ""' "$RESULTS")
+LAST_GOOD=$(jq -r        '.lastSuccessfulCommit // ""' "$RESULTS")
+CULPRIT_LOG_PATH=$(jq -r '.culpritLogPath // ""'     "$RESULTS")
 
 if [ -z "$CULPRIT" ]; then
   OUTCOME="passed"
@@ -95,6 +96,7 @@ SUMMARY_MD=""
   echo "target_commit=$TARGET_COMMIT"
   echo "new_pin=$NEW_PIN"
   echo "items_count=$ITEMS_COUNT"
+  echo "culprit_log_path=$CULPRIT_LOG_PATH"
   echo "summary_md<<SUMMARY_EOF"
   printf '%s\n' "$SUMMARY_MD"
   echo "SUMMARY_EOF"

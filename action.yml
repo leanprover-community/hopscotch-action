@@ -289,4 +289,5 @@ runs:
         TARGET: ${{ steps.parse.outputs.target_commit }}
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         ISSUE_LABELS: ${{ inputs.issue-labels }}
+        CULPRIT_LOG_PATH: ${{ steps.parse.outputs.culprit_log_path }}
       run: ${{ github.action_path }}/scripts/manage-issue.sh
