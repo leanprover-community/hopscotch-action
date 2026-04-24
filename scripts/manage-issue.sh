@@ -7,7 +7,7 @@
 # Emits outputs: issue_number, issue_url
 #
 # Required env:
-#   GH_TOKEN, OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, TARGET, GIT_URL,
+#   GH_TOKEN, OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, GIT_URL,
 #   ISSUE_LABELS
 
 # shellcheck source=lib/common.sh
@@ -19,7 +19,6 @@ source "$(dirname "$0")/lib/github.sh"
 OUTCOME="${OUTCOME:-}"
 CULPRIT="${CULPRIT:-}"
 LAST_GOOD="${LAST_GOOD:-}"
-TARGET="${TARGET:-}"
 GIT_URL="${GIT_URL:-}"
 ISSUE_LABELS="${ISSUE_LABELS:-}"
 
@@ -47,23 +46,59 @@ ISSUE_LINE=$(gh issue list \
 ISSUE_NUMBER=$(echo "$ISSUE_LINE" | awk 'NF{print $1}')
 ISSUE_URL=$(echo "$ISSUE_LINE"    | awk 'NF{print $2}')
 
-if [ "$OUTCOME" = "incompatible" ]; then
-  CULPRIT_LINE=""
-  [ -n "$CULPRIT" ]   && CULPRIT_LINE="**First failing commit:** $(commit_link "$CULPRIT" "$GIT_URL")"
-  LAST_GOOD_LINE=""
-  [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="**Last known-good commit:** $(commit_link "$LAST_GOOD" "$GIT_URL")"
-  TARGET_LINE=""
-  [ -n "$TARGET" ]    && TARGET_LINE="**Target ref tested:** \`${TARGET:0:7}\`"
+# Returns: "<sha7> — <subject> (<date> (<author>))"
+fetch_commit_info() {
+  local sha="$1"
+  local repo="$2"
+  if [ -z "$sha" ] || [ -z "$repo" ]; then
+    echo "${sha:0:7}"; return
+  fi
+  gh api "repos/${repo}/commits/${sha}" \
+    --jq '"\(.sha[0:7]) — \(.commit.message | split("\n")[0]) (\(.commit.author.date[0:10]) (\(.commit.author.name)))"' \
+    2>/dev/null || echo "${sha:0:7}"
+}
 
-  # shellcheck disable=SC2016  # escaped backticks in single-quoted format string are literal, not command substitutions
-  ISSUE_BODY=$(printf '%s\n\nThe \`%s\` dependency has a breaking upstream commit.\n\n%s\n%s\n%s\n\n[View run](%s)\n\n%s' \
-    "$MARKER" \
-    "$DEP_NAME" \
-    "$CULPRIT_LINE" \
-    "$LAST_GOOD_LINE" \
-    "$TARGET_LINE" \
-    "$RUN_URL" \
-    "_Managed by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action). This issue is updated automatically on each run and closed when the regression is resolved._")
+if [ "$OUTCOME" = "incompatible" ]; then
+  REPO=$(repo_from_git_url "$GIT_URL")
+  DOWNSTREAM_REPO="${GITHUB_REPOSITORY:-}"
+  DOWNSTREAM_SHA="${GITHUB_SHA:-}"
+
+  CULPRIT_INFO=$(fetch_commit_info "$CULPRIT" "$REPO")
+  LAST_GOOD_INFO=$(fetch_commit_info "$LAST_GOOD" "$REPO")
+  DOWNSTREAM_INFO=$(fetch_commit_info "$DOWNSTREAM_SHA" "$DOWNSTREAM_REPO")
+
+  INTRO="An incompatibility has been detected between this project and recent changes in ${DEP_NAME}.
+In other words, this project can't advance to the tip of ${DEP_NAME} without breaking."
+
+  CULPRIT_LINE=""
+  [ -n "$CULPRIT" ] && CULPRIT_LINE="First incompatible ${DEP_NAME} commit: ${CULPRIT_INFO}."
+
+  LAST_GOOD_LINE=""
+  [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="Last-known-good ${DEP_NAME} commit: ${LAST_GOOD_INFO}."
+
+  VERIFIED_BLOCK=""
+  if [ -n "$DOWNSTREAM_SHA" ]; then
+    VERIFIED_BLOCK="Verified when ${DOWNSTREAM_REPO} was at: ${DOWNSTREAM_INFO}.
+You can reproduce this break by:
+
+    updating the ${DEP_NAME} rev field in your lakefile to ${CULPRIT}
+    running lake update ${DEP_NAME}
+    running lake build"
+  fi
+
+  FOOTER="_Managed by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action). This issue is updated automatically on each run and closed when the regression is resolved._"
+
+  ISSUE_BODY="${MARKER}
+
+${INTRO}
+
+${CULPRIT_LINE}
+
+${LAST_GOOD_LINE}
+
+${VERIFIED_BLOCK}
+
+${FOOTER}"
 
   mapfile -t LABEL_ARGS < <(parse_labels_csv "$ISSUE_LABELS")
 

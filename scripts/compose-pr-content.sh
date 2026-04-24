@@ -29,13 +29,22 @@ fetch_subject() {
     --jq '.commit.message | split("\n")[0]' 2>/dev/null || true
 }
 
+fetch_commit_count() {
+  local base="$1" head="$2"
+  if [ -z "$base" ] || [ -z "$head" ] || [ -z "$REPO" ]; then
+    echo ""; return
+  fi
+  gh api "repos/${REPO}/compare/${base}...${head}" \
+    --jq '.ahead_by' 2>/dev/null || true
+}
+
 NEW_SUBJECT=$(fetch_subject "$NEW_PIN")
 PREV_SUBJECT=$(fetch_subject "$PREVIOUS_PIN")
+COMMIT_COUNT=$(fetch_commit_count "$PREVIOUS_PIN" "$NEW_PIN")
 
 NEW_SHORT="${NEW_PIN:0:7}"
 
 PR_TITLE="chore: bump ${DEP_NAME} to ${NEW_SHORT}"
-[ -n "$NEW_SUBJECT" ] && PR_TITLE="${PR_TITLE}: ${NEW_SUBJECT}"
 
 COMMIT_MSG="$PR_TITLE"
 
@@ -48,6 +57,9 @@ TARGET_LINE="Bump \`${DEP_NAME}\` to ${TARGET_REF}"
 PREV_LINE="Previously at: ${PREV_REF}"
 [ -n "$PREV_SUBJECT" ] && PREV_LINE="${PREV_LINE}: ${PREV_SUBJECT}"
 
+COMMIT_COUNT_LINE=""
+[ -n "$COMMIT_COUNT" ] && COMMIT_COUNT_LINE=$'\n'"This bump advances the dependency by ${COMMIT_COUNT} commits."
+
 CULPRIT_NOTE=""
 if [ "$OUTCOME" = "incompatible" ] && [ -n "$CULPRIT" ]; then
   CULPRIT_REF=$(commit_link "$CULPRIT" "$GIT_URL")
@@ -57,9 +69,10 @@ fi
 RUN_URL="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}/actions/runs/${GITHUB_RUN_ID:-}"
 FOOTER="_Updated by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action) · [run](${RUN_URL})_"
 
-PR_BODY=$(printf '%s\n%s%s\n\n%s' \
+PR_BODY=$(printf '%s\n%s%s%s\n\n%s' \
   "$TARGET_LINE" \
   "$PREV_LINE" \
+  "$COMMIT_COUNT_LINE" \
   "$CULPRIT_NOTE" \
   "$FOOTER")
 

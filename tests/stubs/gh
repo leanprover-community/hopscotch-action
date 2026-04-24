@@ -14,6 +14,11 @@ case "${GH_STUB_MODE:-noop}" in
       echo "Fake commit subject line"
       exit 0
     fi
+    # Match the shape used by fetch_commit_count.
+    if [[ "$*" == *"api repos/"*"/compare/"* ]]; then
+      echo "7"
+      exit 0
+    fi
     exit 0
     ;;
   empty)

@@ -50,11 +50,30 @@ teardown() { teardown_sandbox; }
   [ "$output" = "0" ]
 }
 
-@test "commit subject from gh api is included in title and body" {
+@test "commit subject from gh api is included in pr body" {
   export GH_STUB_MODE=commit-subject
   export OUTCOME=passed
   export CULPRIT=""
   run "$SCRIPTS_DIR/compose-pr-content.sh"
   [ "$status" -eq 0 ]
   grep -q "Fake commit subject line" "$GITHUB_OUTPUT"
+}
+
+@test "commit count from gh api is included in pr body" {
+  export GH_STUB_MODE=commit-subject
+  export OUTCOME=passed
+  export CULPRIT=""
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "This bump advances the dependency by 7 commits" "$GITHUB_OUTPUT"
+}
+
+@test "missing commit count is omitted from pr body" {
+  export GH_STUB_MODE=empty
+  export OUTCOME=passed
+  export CULPRIT=""
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  run grep -c "This bump advances the dependency by" "$GITHUB_OUTPUT"
+  [ "$output" = "0" ]
 }
