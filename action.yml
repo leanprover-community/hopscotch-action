@@ -56,27 +56,47 @@ inputs:
     required: false
     default: '3000'
 
-  # ---- Bump PR ----------------------------------------------------------
+  # ---- Bump / fix PR ----------------------------------------------------
+  pin-to:
+    description: >
+      Which commit the manifest should end up pinned to when an
+      incompatibility is found. One of:
+        last-good (default) — bump PR advances the manifest to the last
+                              passing commit (single force-pushed branch).
+                              The tracking issue surfaces the FKB.
+        first-bad           — fix PR pins the manifest to the first-known-bad
+                              commit on a per-FKB-SHA branch so maintainers
+                              can `gh pr checkout` and reproduce the break.
+                              No tracking issue is opened in this mode.
+      Two invocations (one per mode) on the same workflow give you both
+      a bump PR and a fix PR; running only one mode is fine.
+    required: false
+    default: 'last-good'
   open-pr:
-    description: 'Open or update a bump PR when the manifest pin changes.'
+    description: 'Open or update a PR when the manifest pin changes.'
     required: false
     default: 'true'
   pr-branch:
-    description: 'Branch name for the bump PR (force-pushed on each run).'
+    description: >
+      Branch name for the PR. In `pin-to: last-good` mode, this is the
+      literal force-pushed branch (default `hopscotch/bump`). In
+      `pin-to: first-bad` mode, this is a prefix and the actual branch is
+      `<prefix>-<fkb-short7>` so fix PRs at different FKB SHAs don't
+      collide (default `hopscotch/fix`).
     required: false
-    default: 'hopscotch/bump'
+    default: ''
   pr-base:
-    description: 'Base branch for the bump PR. Defaults to the repository default branch.'
+    description: 'Base branch for the PR. Defaults to the repository default branch.'
     required: false
     default: ''
   pr-labels:
-    description: 'Comma-separated list of labels to apply to the bump PR.'
+    description: 'Comma-separated list of labels to apply to the PR.'
     required: false
     default: ''
   reviewers:
     description: >
       Comma-separated list of GitHub usernames or team slugs to request review
-      from on the bump PR (passed to `gh pr create --reviewer`).
+      from on the PR (passed to `gh pr create --reviewer`).
     required: false
     default: ''
 
@@ -85,6 +105,8 @@ inputs:
     description: >
       Open a GitHub issue when a culprit is found; update it on subsequent
       failures; close it automatically when the downstream recovers.
+      Ignored (forced false) in `pin-to: first-bad` mode — the fix PR
+      itself carries the FKB context.
     required: false
     default: 'true'
   issue-labels:
@@ -92,13 +114,29 @@ inputs:
     required: false
     default: ''
 
-  # ---- Auth -------------------------------------------------------------
+  # ---- Auth & identity --------------------------------------------------
   github-token:
     description: >
       GitHub token for API calls and gh CLI operations (PR, issue, release
       resolution). Defaults to the job token.
     required: false
     default: ${{ github.token }}
+  pr-token:
+    description: >
+      Token used to push the PR branch. Defaults to `github-token`. The
+      default `GITHUB_TOKEN` does NOT trigger downstream workflow runs on
+      the PR it creates — so if you want CI to run on the bump / fix PR,
+      pass a GitHub App installation token here.
+    required: false
+    default: ''
+  git-user-name:
+    description: 'git user.name for the bump / fix commit.'
+    required: false
+    default: 'github-actions[bot]'
+  git-user-email:
+    description: 'git user.email for the bump / fix commit.'
+    required: false
+    default: '41898282+github-actions[bot]@users.noreply.github.com'
 
 outputs:
   outcome:
@@ -120,13 +158,13 @@ outputs:
     description: 'The dependency rev in lake-manifest.json after this run.'
     value: ${{ steps.parse.outputs.new_pin }}
   pr-number:
-    description: 'Bump PR number (empty when no PR was opened).'
+    description: 'PR number (empty when no PR was opened).'
     value: ${{ steps.resolve-outputs.outputs.pr_number }}
   pr-url:
-    description: 'Bump PR URL (empty when no PR was opened).'
+    description: 'PR URL (empty when no PR was opened).'
     value: ${{ steps.resolve-outputs.outputs.pr_url }}
   pr-action:
-    description: '"created", "updated", or "none".'
+    description: '"created", "updated", "up-to-date", or "none".'
     value: ${{ steps.resolve-outputs.outputs.action }}
   issue-number:
     description: 'Tracking issue number (empty when not opened).'
@@ -160,9 +198,9 @@ runs:
       run: ${{ github.action_path }}/scripts/read-pin.sh
 
     # Stage 3 — run hopscotch (clean stale session + invoke `hopscotch dep`).
-    # With --keep-last-good, hopscotch itself probes the upper endpoint first
-    # and terminates cleanly (status=completed) if it passes — so no separate
-    # pre-probe is needed.
+    # `pin-to: last-good` (default) passes --keep-last-good so the bisect
+    # terminates cleanly with the manifest at the LKG; `pin-to: first-bad`
+    # drops the flag so the manifest is left at the FKB for a fix PR.
     - name: Run hopscotch
       id: run
       shell: bash
@@ -173,6 +211,7 @@ runs:
         PROJECT_DIR: ${{ inputs.project-dir }}
         EXTRA_ARGS: ${{ inputs.extra-args }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        PIN_TO: ${{ inputs.pin-to }}
       run: ${{ github.action_path }}/scripts/run-hopscotch.sh
 
     # Stage 4 — parse .lake/hopscotch/results.json (public, schemaVersion-1
@@ -188,56 +227,82 @@ runs:
         MAX_WINDOW: ${{ inputs.max-window-size }}
       run: ${{ github.action_path }}/scripts/parse-results.sh
 
-    # Stage 5 — compute the "should we attempt a PR?" boolean once.
+    # Stage 5 — resolve the effective PR branch (per-FKB-SHA in fix mode).
+    - name: Resolve PR branch
+      id: resolve-branch
+      shell: bash
+      env:
+        PIN_TO: ${{ inputs.pin-to }}
+        PR_BRANCH_INPUT: ${{ inputs.pr-branch }}
+        CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
+      run: ${{ github.action_path }}/scripts/resolve-branch.sh
+
+    # Stage 6 — compute the "should we attempt a PR?" boolean once.
     - name: Decide whether to open PR
       id: should-open-pr
       shell: bash
       env:
+        PIN_TO: ${{ inputs.pin-to }}
         OUTCOME: ${{ steps.parse.outputs.outcome }}
         NEW_PIN: ${{ steps.parse.outputs.new_pin }}
+        CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
         PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
         OPEN_PR: ${{ inputs.open-pr }}
       run: ${{ github.action_path }}/scripts/should-open-pr.sh
 
-    # Stage 6 — build the PR title / body / commit message.
+    # Stage 7 — build the PR title / body / commit message.
     - name: Compose PR content
       id: descriptions
       if: steps.should-open-pr.outputs.yes == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
+        PIN_TO: ${{ inputs.pin-to }}
         NEW_PIN: ${{ steps.parse.outputs.new_pin }}
         PREVIOUS_PIN: ${{ steps.read-pin.outputs.previous_pin }}
         DEP_NAME: ${{ inputs.dependency }}
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         OUTCOME: ${{ steps.parse.outputs.outcome }}
         CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
+        LAST_GOOD: ${{ steps.parse.outputs.last_good_commit }}
+        CULPRIT_LOG_PATH: ${{ steps.parse.outputs.culprit_log_path }}
       run: ${{ github.action_path }}/scripts/compose-pr-content.sh
 
-    # Stage 7a — check working tree for changes.
+    # Stage 8a — check working tree for changes.
     - name: Check for working-tree changes
       id: check-changes
       if: steps.should-open-pr.outputs.yes == 'true'
       shell: bash
       run: ${{ github.action_path }}/scripts/check-changes.sh
 
-    # Stage 7b — commit + force-push.
+    # Stage 8b — commit + push. Skips the push (and the downstream PR edit)
+    # when the remote branch's tree already matches and an open PR points
+    # at it — avoids CI re-runs and timeline churn on sub-daily reruns.
     - name: Commit and push branch
+      id: push
       if: steps.should-open-pr.outputs.yes == 'true' && steps.check-changes.outputs.no_changes == 'false'
       shell: bash
       env:
-        BRANCH: ${{ inputs.pr-branch }}
+        BRANCH: ${{ steps.resolve-branch.outputs.branch }}
         COMMIT_MESSAGE: ${{ steps.descriptions.outputs.commit_message }}
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR_TOKEN: ${{ inputs.pr-token }}
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
       run: ${{ github.action_path }}/scripts/commit-and-push.sh
 
-    # Stage 7c — create or update PR.
+    # Stage 8c — create or update PR.
     - name: Create or update PR
       id: create-or-update-pr
-      if: steps.should-open-pr.outputs.yes == 'true' && steps.check-changes.outputs.no_changes == 'false'
+      if: >-
+        steps.should-open-pr.outputs.yes == 'true'
+        && steps.check-changes.outputs.no_changes == 'false'
+        && steps.push.outputs.tree_unchanged != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
-        BRANCH: ${{ inputs.pr-branch }}
+        PIN_TO: ${{ inputs.pin-to }}
+        BRANCH: ${{ steps.resolve-branch.outputs.branch }}
         BASE: ${{ inputs.pr-base }}
         TITLE: ${{ steps.descriptions.outputs.pr_title }}
         BODY: ${{ steps.descriptions.outputs.pr_body }}
@@ -245,7 +310,7 @@ runs:
         REVIEWERS: ${{ inputs.reviewers }}
       run: ${{ github.action_path }}/scripts/create-or-update-pr.sh
 
-    # Stage 7d — consolidate PR outputs (runs always).
+    # Stage 8d — consolidate PR outputs (runs always).
     - name: Resolve outputs
       id: resolve-outputs
       if: always()
@@ -253,17 +318,36 @@ runs:
       env:
         SHOULD_OPEN_PR: ${{ steps.should-open-pr.outputs.yes }}
         NO_CHANGES: ${{ steps.check-changes.outputs.no_changes }}
+        TREE_UNCHANGED: ${{ steps.push.outputs.tree_unchanged }}
+        EXISTING_PR_NUMBER: ${{ steps.push.outputs.existing_pr_number }}
+        EXISTING_PR_URL: ${{ steps.push.outputs.existing_pr_url }}
         PR_NUMBER: ${{ steps.create-or-update-pr.outputs.pr_number }}
         PR_URL: ${{ steps.create-or-update-pr.outputs.pr_url }}
         PR_ACTION: ${{ steps.create-or-update-pr.outputs.pr_action }}
       run: ${{ github.action_path }}/scripts/resolve-outputs.sh
 
-    # Stage 8a — job summary.
+    # Stage 8e — fix-PR lifecycle: in `pin-to: first-bad` mode, close any
+    # open fix PRs that are stale (FKB advanced) or whose regression has
+    # resolved (outcome=passed). Identified by the static
+    # `hopscotch-action-fix` label.
+    - name: Close stale or resolved fix PRs
+      if: inputs.pin-to == 'first-bad'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        OUTCOME: ${{ steps.parse.outputs.outcome }}
+        CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
+        CURRENT_BRANCH: ${{ steps.resolve-branch.outputs.branch }}
+        GIT_URL: ${{ steps.read-pin.outputs.git_url }}
+      run: ${{ github.action_path }}/scripts/close-fix-prs.sh
+
+    # Stage 9a — job summary.
     - name: Write job summary
       if: always()
       shell: bash
       env:
         OUTCOME: ${{ steps.parse.outputs.outcome }}
+        PIN_TO: ${{ inputs.pin-to }}
         DEP_NAME: ${{ inputs.dependency }}
         CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
         LAST_GOOD: ${{ steps.parse.outputs.last_good_commit }}
@@ -275,10 +359,11 @@ runs:
         SUMMARY_MD: ${{ steps.parse.outputs.summary_md }}
       run: ${{ github.action_path }}/scripts/write-summary.sh
 
-    # Stage 8b — manage the per-dependency tracking issue.
+    # Stage 9b — manage the per-dependency tracking issue (LKG mode only;
+    # in fix-PR mode the PR itself carries the FKB context).
     - name: Manage tracking issue
       id: issue
-      if: inputs.open-issue == 'true'
+      if: inputs.open-issue == 'true' && inputs.pin-to != 'first-bad'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github-token }}
