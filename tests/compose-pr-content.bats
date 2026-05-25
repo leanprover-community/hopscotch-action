@@ -77,3 +77,53 @@ teardown() { teardown_sandbox; }
   run grep -c "This bump advances the dependency by" "$GITHUB_OUTPUT"
   [ "$output" = "0" ]
 }
+
+# --- first-bad / fix-PR mode ---
+
+@test "first-bad: title uses fix: prefix and FKB short" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  local title
+  title=$(output_value pr_title)
+  [[ "$title" == fix:* ]]
+  [[ "$title" == *"mathlib"* ]]
+  [[ "$title" == *"ddddddd"* ]]
+}
+
+@test "first-bad: body explains the reproduction goal" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "first-known-bad commit" "$GITHUB_OUTPUT"
+  grep -q "reproduce the break" "$GITHUB_OUTPUT"
+}
+
+@test "first-bad: omits the LKG-mode 'Previously at' line" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  run grep -c "Previously at" "$GITHUB_OUTPUT"
+  [ "$output" = "0" ]
+}
+
+@test "first-bad: includes LKG link when available" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  export LAST_GOOD=ffffffffffffffffffffffffffffffffffffffff
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Last-known-good" "$GITHUB_OUTPUT"
+  grep -q "fffffff" "$GITHUB_OUTPUT"
+}

@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Render the GitHub Actions job summary for this run.
 #
+# Wording branches on PIN_TO so a fix-PR run reads as such (pinning to the
+# FKB) rather than as a bump (advancing past the LKG).
+#
 # Required env:
 #   OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, TARGET, PREV_PIN, NEW_PIN, PR_URL,
 #   GIT_URL, SUMMARY_MD
+# Optional env:
+#   PIN_TO (defaults to last-good)
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -11,6 +16,7 @@ source "$(dirname "$0")/lib/common.sh"
 source "$(dirname "$0")/lib/github.sh"
 
 OUTCOME="${OUTCOME:-}"
+PIN_TO="${PIN_TO:-last-good}"
 DEP_NAME="${DEP_NAME:-}"
 CULPRIT="${CULPRIT:-}"
 LAST_GOOD="${LAST_GOOD:-}"
@@ -21,22 +27,39 @@ PR_URL="${PR_URL:-}"
 GIT_URL="${GIT_URL:-}"
 SUMMARY_MD="${SUMMARY_MD:-}"
 
+if [ "$PIN_TO" = "first-bad" ]; then
+  HEADING="Hopscotch (fix mode): \`${DEP_NAME}\`"
+  PR_LABEL="Fix PR"
+else
+  HEADING="Hopscotch: \`${DEP_NAME}\`"
+  PR_LABEL="Bump PR"
+fi
+
 {
-  echo "## Hopscotch: \`${DEP_NAME}\`"
+  echo "## ${HEADING}"
   echo ""
   case "$OUTCOME" in
     passed)
-      echo "**Outcome:** ✅ All commits passed."
-      [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ] \
-        && echo "**Bumped to:** $(commit_link "$NEW_PIN" "$GIT_URL")"
+      if [ "$PIN_TO" = "first-bad" ]; then
+        echo "**Outcome:** ✅ No incompatibility — nothing to fix."
+      else
+        echo "**Outcome:** ✅ All commits passed."
+        [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ] \
+          && echo "**Bumped to:** $(commit_link "$NEW_PIN" "$GIT_URL")"
+      fi
       ;;
     incompatible)
       echo "**Outcome:** ❌ Culprit found."
       echo ""
       [ -n "$CULPRIT" ]   && echo "**First failing commit:** $(commit_link "$CULPRIT" "$GIT_URL")"
       [ -n "$LAST_GOOD" ] && echo "**Last good commit:** $(commit_link "$LAST_GOOD" "$GIT_URL")"
-      [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ] \
-        && echo "**Bumped pin to:** $(commit_link "$NEW_PIN" "$GIT_URL")"
+      if [ -n "$NEW_PIN" ] && [ "$NEW_PIN" != "$PREV_PIN" ]; then
+        if [ "$PIN_TO" = "first-bad" ]; then
+          echo "**Pinned to (FKB):** $(commit_link "$NEW_PIN" "$GIT_URL")"
+        else
+          echo "**Bumped pin to:** $(commit_link "$NEW_PIN" "$GIT_URL")"
+        fi
+      fi
       ;;
     skipped)
       echo "**Outcome:** ⏭ Already at target — nothing to do."
@@ -48,7 +71,7 @@ SUMMARY_MD="${SUMMARY_MD:-}"
   echo ""
   [ -n "$PREV_PIN" ] && echo "**Previous pin:** \`${PREV_PIN:0:7}\`"
   [ -n "$TARGET" ]   && echo "**Target commit:** \`${TARGET:0:7}\`"
-  [ -n "$PR_URL" ]   && echo "**Bump PR:** $PR_URL"
+  [ -n "$PR_URL" ]   && echo "**${PR_LABEL}:** $PR_URL"
   if [ -n "$SUMMARY_MD" ]; then
     echo ""
     echo "### hopscotch summary"
