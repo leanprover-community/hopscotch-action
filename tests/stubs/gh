@@ -1,20 +1,97 @@
 #!/usr/bin/env bash
-# Stub for `gh`. Responses driven by the GH_STUB_MODE env var so each test
-# can dictate the fake API behavior it needs.
+# Stub for `gh`. Responses driven by env vars so each test can dictate
+# the fake API behavior it needs.
 #
-#   GH_STUB_MODE=commit-subject   — echoes "Fake commit subject line" for any
-#                                   `gh api repos/.../commits/<sha> --jq ...`
-#   GH_STUB_MODE=empty            — returns empty output (no commit subject)
-#   (default)                     — no-op, returns 0
+# Modes (selected by GH_STUB_MODE):
+#   commit-subject  — echoes "Fake commit subject line" for any
+#                     `gh api repos/.../commits/<sha>` call; "7" for
+#                     `gh api repos/.../compare/...`.
+#   empty           — returns empty output.
+#   (default)       — see per-subcommand handling below.
+#
+# Per-subcommand behaviour (independent of mode):
+#   gh pr list ...        — emits the JSON in $GH_STUB_PR_LIST (default '[]').
+#                           When --jq '.[0] // empty' is on the command line,
+#                           we apply that filter so callers using
+#                             gh pr list --jq '.[0] // empty'
+#                           get back the first element or empty.
+#   gh pr comment <num>   — records the comment to $GH_STUB_LOG (if set):
+#                             "comment <num> <body>"
+#   gh pr close   <num>   — records to $GH_STUB_LOG: "close <num>"
+#   gh label create ...   — silently succeeds.
 
+set -e
+
+# Helper: log an action when GH_STUB_LOG is set.
+record() {
+  [ -n "${GH_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$GH_STUB_LOG"
+}
+
+# --- pr subcommands ---
+if [ "${1:-}" = "pr" ]; then
+  shift
+  case "${1:-}" in
+    list)
+      payload="${GH_STUB_PR_LIST:-[]}"
+      # Honor --jq if present.
+      jq_filter=""
+      while [ $# -gt 0 ]; do
+        if [ "$1" = "--jq" ]; then
+          jq_filter="$2"
+          shift 2
+        else
+          shift
+        fi
+      done
+      if [ -n "$jq_filter" ]; then
+        printf '%s' "$payload" | jq -r "$jq_filter"
+      else
+        printf '%s' "$payload"
+      fi
+      exit 0
+      ;;
+    comment)
+      # gh pr comment <num> --body "<body>"
+      shift
+      num="$1"
+      body=""
+      while [ $# -gt 0 ]; do
+        if [ "$1" = "--body" ]; then
+          body="$2"
+          shift 2
+        else
+          shift
+        fi
+      done
+      record "comment $num $body"
+      exit 0
+      ;;
+    close)
+      shift
+      num="$1"
+      record "close $num"
+      exit 0
+      ;;
+    create|edit)
+      # Used by other scripts; for now just acknowledge.
+      record "pr-${1}"
+      exit 0
+      ;;
+  esac
+fi
+
+# --- label subcommand: silent success.
+if [ "${1:-}" = "label" ]; then
+  exit 0
+fi
+
+# --- api subcommand: drives the legacy modes.
 case "${GH_STUB_MODE:-noop}" in
   commit-subject)
-    # Match the shape used by compose-pr-content.sh's fetch_subject.
     if [[ "$*" == *"api repos/"*"/commits/"* ]]; then
       echo "Fake commit subject line"
       exit 0
     fi
-    # Match the shape used by fetch_commit_count.
     if [[ "$*" == *"api repos/"*"/compare/"* ]]; then
       echo "7"
       exit 0

@@ -40,6 +40,14 @@ case "$OUTCOME" in
     ;;
 esac
 
+# Defensive guard: parse-results.sh always pairs OUTCOME=incompatible
+# with a non-empty culprit, but if that invariant ever breaks the
+# stale-close comment below would say "advanced to" with no SHA.
+if [ "$OUTCOME" = "incompatible" ] && [ -z "$CULPRIT" ]; then
+  log "OUTCOME=incompatible but no culprit — skipping stale-close (unexpected state)."
+  exit 0
+fi
+
 # Look up open PRs by the static label. Empty list means nothing to do.
 OPEN_PRS=$(gh pr list \
   --label "$FIX_LABEL" \

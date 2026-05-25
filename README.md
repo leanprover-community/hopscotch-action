@@ -87,10 +87,14 @@ The action opens a **fix PR** on a per-FKB-SHA branch (default `hopscotch/fix-<s
 | Outcome | Fix-PR action |
 |---|---|
 | `passed` | close all open fix PRs with a recovery comment |
-| `incompatible` (new FKB) | open / update fix PR; close stale fix PRs for prior FKBs |
-| `incompatible` (same FKB) | leave existing fix PR untouched (`pr-action: up-to-date` if tree matches) |
+| `incompatible` (new FKB) | open a new fix PR on the per-FKB branch; close stale fix PRs for prior FKBs |
+| `incompatible` (same FKB, remote tree matches HEAD) | no-op; reports the existing PR (`pr-action: up-to-date`) |
+| `incompatible` (same FKB, maintainer pushed commits) | no-op; the maintainer's commits are preserved (`pr-action: up-to-date`) |
+| `incompatible` (same FKB, tree differs and branch is bot-owned) | force-push, update PR title / body |
 | `skipped` | — |
 | `tool-error` | — |
+
+**Maintainer WIP on fix PRs.** The action force-pushes its bump / fix branches by default. In fix-PR mode this would clobber any commits the maintainer pushed on top of the fix branch — so before pushing, the action checks the remote HEAD's committer email and skips the push when it doesn't match `git-user-email` (default `github-actions[bot]@…`). This is heuristic, not bulletproof: a maintainer who pushes to the branch as the bot identity, or a force-push that rewrites history, will not be detected. If you customize `git-user-name` / `git-user-email`, keep the maintainer's local identity distinct from the bot's.
 
 ## Action inputs
 

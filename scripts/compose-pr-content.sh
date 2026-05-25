@@ -57,7 +57,9 @@ fetch_commit_count() {
 # return empty when no log is available. Mirrors manage-issue.sh.
 build_log_block() {
   local log_path="$1"
-  [ -z "$log_path" ] || [ ! -f "$log_path" ] && return 0
+  if [ -z "$log_path" ] || [ ! -f "$log_path" ]; then
+    return 0
+  fi
   local filtered line trimmed
   filtered=$(
     while IFS= read -r line; do
