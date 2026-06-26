@@ -93,13 +93,13 @@ detection_section() {
   local out=""
   if [ -n "$PROPOSED_FIXES_MD" ]; then
     if [ "$FIXES_APPLIED" = "true" ]; then
-      out+=$'\n\n### Automated fixes applied\n\nThese import rewrites were applied to the branch; this PR\'s CI validates them:\n\n'"$PROPOSED_FIXES_MD"
+      out+=$'\n\n### Automated fixes applied\n\nThese fixes were applied to the branch; this PR\'s CI validates them:\n\n'"$PROPOSED_FIXES_MD"
     else
-      out+=$'\n\n### Automated fixes available\n\nRun `hopscotch fix apply` to apply these import rewrites:\n\n'"$PROPOSED_FIXES_MD"
+      out+=$'\n\n### Automated fixes available\n\nRun `hopscotch fix apply` to apply them:\n\n'"$PROPOSED_FIXES_MD"
     fi
   fi
   if [ "$FIXES_APPLIED" = "true" ] && [ -n "$DEPRECATED_IMPORTS_MD" ]; then
-    out+=$'\n\n### Deprecation hygiene applied\n\nImports migrated off live deprecation shims:\n\n'"$DEPRECATED_IMPORTS_MD"
+    out+=$'\n\n### Deprecation hygiene applied\n\nThe following were also applied:\n\n'"$DEPRECATED_IMPORTS_MD"
   fi
   if [ -n "$DETECTION_NOTES_MD" ]; then
     out+=$'\n\n### Detection notes\n\n'"$DETECTION_NOTES_MD"
@@ -135,7 +135,7 @@ if [ "$PIN_TO" = "first-bad" ]; then
   # shellcheck disable=SC2016
   # Backticks are markdown literals — %s does the actual expansion.
   if [ "$FIXES_APPLIED" = "true" ]; then
-    EXPLAINER=$(printf 'This PR pins `%s` to the first-known-bad commit and applies hopscotch'\''s proposed import fixes, so this PR'\''s CI validates the repair. Review the rewrites and merge to advance past the break.' "$DEP_NAME")
+    EXPLAINER=$(printf 'This PR pins `%s` to the first-known-bad commit and applies hopscotch'\''s proposed fixes, so this PR'\''s CI validates the repair. Review the changes and merge to advance past the break.' "$DEP_NAME")
   else
     EXPLAINER=$(printf 'This PR bumps `%s` to the first-known-bad commit so you can check out the branch and reproduce the break locally.' "$DEP_NAME")
   fi

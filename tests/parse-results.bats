@@ -130,7 +130,7 @@ teardown() { teardown_sandbox; }
   [ "$(output_value detection_note_count)" = "0" ]
 }
 
-@test "proposed_fixes_md renders the import rewrite" {
+@test "proposed_fixes_md renders the mapping from the tool's fields" {
   cp "$FIXTURES_DIR/results-stopped-bisect.json" .lake/hopscotch/results.json
   export PREVIOUS_PIN=1111111111111111111111111111111111111111
   run "$SCRIPTS_DIR/parse-results.sh"

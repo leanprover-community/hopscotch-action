@@ -132,7 +132,7 @@ In other words, this project can't advance to the tip of \`${DEP_NAME}\` without
   # the break could not be auto-repaired (a genuine removal).
   FIX_BLOCK=""
   if [ "$PROPOSED_FIX_COUNT" -gt 0 ] && [ -n "$PROPOSED_FIXES_MD" ]; then
-    FIX_BLOCK="**An automated fix is available.** hopscotch can repair the broken import(s):
+    FIX_BLOCK="**An automated fix is available.** hopscotch proposes the following:
 
 ${PROPOSED_FIXES_MD}
 

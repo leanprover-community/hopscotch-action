@@ -89,14 +89,15 @@ DEPRECATED_IMPORT_COUNT=$(jq -r '(.deprecatedImports // []) | length' "$RESULTS"
 DETECTION_NOTE_COUNT=$(jq -r    '(.detectionNotes // [])    | length' "$RESULTS")
 
 # Render a ProposedFix array (.proposedFixes / .deprecatedImports) into a
-# markdown bullet list. Each entry becomes either an import rewrite
-# (`old → new, new`), an import removal (empty newModules), with a
-# `[partial]` marker when an import rewrite alone may be insufficient.
+# markdown bullet list, drawing solely from the tool's fields: a mapping
+# (`old → new, new`), a removal (empty newModules), and a `[partial]` marker
+# (with the tool's note) when the fix may be insufficient on its own. We do
+# not characterize what kind of fix it is — that comes from the tool.
 render_fixes() {
   jq -r --arg field "$1" '
     (.[$field] // [])[] |
     ( if (.newModules | length) == 0
-      then "- remove import `\(.oldModule)`"
+      then "- remove `\(.oldModule)`"
       else "- `\(.oldModule)` → " + (.newModules | map("`" + . + "`") | join(", "))
       end )
     + ( if .partialFix
