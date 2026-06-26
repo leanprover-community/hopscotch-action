@@ -315,9 +315,9 @@ runs:
         OPEN_PR: ${{ inputs.open-pr }}
       run: ${{ github.action_path }}/scripts/should-open-pr.sh
 
-    # Stage 6b — optionally fold hopscotch's automated import fixes into the
-    # working tree (before check-changes sees it). Gated on a pending PR; the
-    # script no-ops for apply-fixes=none and for modes/outcomes where a fix
+    # Stage 6b — optionally fold hopscotch's automated fixes into the working
+    # tree (before check-changes sees it). Gated on a pending PR; the script
+    # no-ops when apply-fixes is false and for modes/outcomes where a fix
     # can't be applied safely.
     - name: Apply automated fixes
       id: apply-fixes
