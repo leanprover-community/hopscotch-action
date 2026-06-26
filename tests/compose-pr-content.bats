@@ -160,6 +160,23 @@ teardown() { teardown_sandbox; }
   grep -q "reproduce the break" "$GITHUB_OUTPUT"
 }
 
+@test "last-good: available proposals point at fix-PR mode, not a bare fix apply" {
+  # The bump branch is pinned at the LKG (before the break), where running
+  # `hopscotch fix apply` wouldn't build — so the body must not tell the
+  # maintainer to run it; it points at the first-bad fix-PR mode instead.
+  export GH_STUB_MODE=empty
+  export OUTCOME=incompatible
+  export CULPRIT=eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+  export PROPOSED_FIXES_MD='- `Demo.Old` → `Demo.New`'
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Automated fixes available" "$GITHUB_OUTPUT"
+  grep -q "ready-to-merge fix PR" "$GITHUB_OUTPUT"
+  grep -q "first-bad" "$GITHUB_OUTPUT"
+  run grep -c "hopscotch fix apply" "$GITHUB_OUTPUT"
+  [ "$output" = "0" ]
+}
+
 @test "first-bad: detection notes are surfaced" {
   export GH_STUB_MODE=empty
   export PIN_TO=first-bad

@@ -94,8 +94,14 @@ detection_section() {
   if [ -n "$PROPOSED_FIXES_MD" ]; then
     if [ "$FIXES_APPLIED" = "true" ]; then
       out+=$'\n\n### Automated fixes applied\n\nThese fixes were applied to the branch; this PR\'s CI validates them:\n\n'"$PROPOSED_FIXES_MD"
-    else
+    elif [ "$PIN_TO" = "first-bad" ]; then
+      # This branch is pinned at the break, so the rewrites build here.
       out+=$'\n\n### Automated fixes available\n\nRun `hopscotch fix apply` to apply them:\n\n'"$PROPOSED_FIXES_MD"
+    else
+      # last-good: this branch is pinned *before* the break, where the
+      # rewrites would not build — point at the fix-PR mode instead of a bare
+      # `hopscotch fix apply`.
+      out+=$'\n\n### Automated fixes available\n\nThese repair the upcoming break. Open a ready-to-merge fix PR by running this action in `pin-to: first-bad` mode with `apply-fixes: true`:\n\n'"$PROPOSED_FIXES_MD"
     fi
   fi
   if [ "$FIXES_APPLIED" = "true" ] && [ -n "$DEPRECATED_IMPORTS_MD" ]; then

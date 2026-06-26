@@ -82,7 +82,14 @@ fi
   if [ "$FIXES_APPLIED" = "true" ]; then
     echo "**Automated fixes:** ✅ applied"
   elif [ "$PROPOSED_FIX_COUNT" -gt 0 ]; then
-    echo "**Automated fixes:** ${PROPOSED_FIX_COUNT} proposed (not applied — run \`hopscotch fix apply\`)"
+    if [ "$PIN_TO" = "first-bad" ]; then
+      # Manifest is at the break — `hopscotch fix apply` builds here.
+      echo "**Automated fixes:** ${PROPOSED_FIX_COUNT} proposed (not applied — run \`hopscotch fix apply\`)"
+    else
+      # last-good: the pin is before the break, so applying here wouldn't
+      # build; direct to the fix-PR mode instead.
+      echo "**Automated fixes:** ${PROPOSED_FIX_COUNT} proposed (apply via a \`pin-to: first-bad\` run with \`apply-fixes: true\`)"
+    fi
   fi
   [ "$DEPRECATED_IMPORT_COUNT" -gt 0 ] && echo "**Deprecation advisories:** ${DEPRECATED_IMPORT_COUNT}"
   if [ -n "$SUMMARY_MD" ]; then
