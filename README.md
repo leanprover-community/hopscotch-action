@@ -5,7 +5,7 @@ A reusable GitHub Action that wraps the [`hopscotch`](https://github.com/leanpro
 2. **Open a bump PR**. When the build passes (or after finding the last-good commit), automatically open or update a pull request to advance the manifest pin.
 3. **Open a fix PR**. Pin the manifest to the first-known-bad commit on a per-FKB branch so maintainers can `gh pr checkout` and reproduce the break locally.
 4. **Track incompatibilities with an issue**. After finding a culprit, automatically open or update an issue to report the breaking commit.
-5. **Apply automated fixes**. hopscotch detects breakage caused by module deprecations and proposes the import rewrites that repair it. With `apply-fixes`, the action runs `hopscotch fix apply` and folds those rewrites into the PR, so a fix PR becomes ready to merge once its CI is green.
+5. **Apply automated fixes**. hopscotch detects breakage caused by module deprecations and proposes the changes that repair it. With `apply-fixes: true`, the action runs `hopscotch fix apply` and folds those changes into the PR, so a fix PR becomes ready to merge once its CI is green.
 
 The action runs in one of two modes selected by `pin-to`:
 
@@ -106,24 +106,16 @@ A common source of upstream breakage is a **module deprecation**: a dependency d
 
 hopscotch detects these on every `dep` run and records two kinds of result, both surfaced by this action:
 
-- **Proposed fixes** — import rewrites that repair the failure boundary. Reported in `proposed-fix-count` and in the PR / issue body.
+- **Proposed fixes** — the changes that repair the failure boundary. Reported in `proposed-fix-count` and in the PR / issue body.
 - **Deprecation advisories** — imports that still build today but resolve through a live shim and will break when it is deleted upstream. Reported in `deprecated-import-count`.
 
 When detection can't propose a repair (a genuine removal with no replacement shim), it records a human-readable note instead, which the tracking issue surfaces.
 
-`apply-fixes` controls whether the action acts on these by running `hopscotch fix apply`:
+By default (`apply-fixes: false`) the action only **reports** these — no source files are touched. Set **`apply-fixes: true`** to run `hopscotch fix apply`, which folds both the break-repairing proposals and the deprecation advisories into the working tree. The changes are committed onto the PR branch alongside the pin change, so the PR's own CI validates the repair.
 
-| `apply-fixes` | Effect |
-|---|---|
-| `none` (default) | Detect and report only — no source files are touched. |
-| `boundary` | Apply only the break-repairing proposals (`--no-advisories`). |
-| `all` | Also apply deprecation-hygiene advisories. |
+**Where fixes land.** A break repair points at a module that only exists *at or after* the break, so it is applied only where the manifest sits at the break — i.e. **`pin-to: first-bad`**, turning the reproduction PR into a mergeable "fix breaking changes" PR. In **`pin-to: last-good`** the manifest sits *before* the break, so only a fully-green run folds in deprecation-hygiene advisories (a break repair wouldn't build there). Either way the findings are still reported.
 
-The applied rewrites are committed onto the PR branch alongside the pin change, so the PR's own CI validates the repair.
-
-**Where each kind of fix is applied.** A boundary proposal rewrites an import to a module that only exists *at or after* the break, so it is only applied where the manifest sits at the break — i.e. **`pin-to: first-bad`** (where it turns the reproduction PR into a mergeable "fix breaking changes" PR). In **`pin-to: last-good`** the manifest sits *before* the break, so the action applies only advisories, and only on a fully-green run, folding deprecation hygiene into the bump PR. Either way the proposals/advisories/notes are still reported.
-
-For the canonical CI flow: run `pin-to: first-bad` with `apply-fixes: boundary` on a schedule. Each run opens (or refreshes) a ready-to-merge fix PR for the current break; merge it, and the next run advances past the repaired breakage to find the next one.
+For the canonical CI flow: run `pin-to: first-bad` with `apply-fixes: true` on a schedule. Each run opens (or refreshes) a ready-to-merge fix PR for the current break; merge it, and the next run advances past the repaired breakage to find the next one.
 
 ## Action inputs
 
@@ -144,7 +136,7 @@ For the canonical CI flow: run `pin-to: first-bad` with `apply-fixes: boundary` 
 | | | |
 | | | |
 | `pin-to` | `last-good` | `last-good` (bump PR) or `first-bad` (fix PR). |
-| `apply-fixes` | `none` | Apply hopscotch's automated import fixes into the PR via `hopscotch fix apply`: `none`, `boundary` (proposals only), or `all` (also advisories). See [Automated fixes](#automated-fixes-module-deprecations). |
+| `apply-fixes` | `false` | When `true`, run `hopscotch fix apply` to fold the automated fixes into the PR (where it's safe to). Default reports only. See [Automated fixes](#automated-fixes-module-deprecations). |
 | `open-pr` | `true` | Open / update a PR when the pin changes. |
 | `pr-branch` | *(mode-dependent)* | LKG mode: literal branch (default `hopscotch/bump`). FKB mode: prefix, actual branch is `<prefix>-<fkb-short7>` (default `hopscotch/fix`). |
 | `pr-base` | *(default branch)* | Base branch for the PR. |
@@ -304,10 +296,10 @@ break. `failure-stage` tells you which step failed.
 
 ### Auto-fix breaking changes (ready-to-merge fix PR)
 
-When the break is a module deprecation, apply hopscotch's proposed import
-rewrites so the fix PR is mergeable once its CI is green. Run on a schedule:
-each run refreshes the fix PR for the current break; merge it and the next run
-moves on to the next one.
+When the break is a module deprecation, apply hopscotch's proposed fixes so
+the fix PR is mergeable once its CI is green. Run on a schedule: each run
+refreshes the fix PR for the current break; merge it and the next run moves
+on to the next one.
 
 ```yaml
 - uses: leanprover-community/hopscotch-action@v1
@@ -315,7 +307,7 @@ moves on to the next one.
     dependency: mathlib
     to: master
     pin-to: first-bad
-    apply-fixes: boundary       # apply only the break-repairing rewrites
+    apply-fixes: true
     pr-token: ${{ steps.app-token.outputs.token }}  # so the PR's CI runs
 ```
 
@@ -327,7 +319,7 @@ Branch on the outputs to handle the non-repairable case yourself:
   with:
     dependency: mathlib
     pin-to: first-bad
-    apply-fixes: boundary
+    apply-fixes: true
 
 - if: steps.hs.outputs.outcome == 'incompatible' && steps.hs.outputs.proposed-fix-count == '0'
   run: echo "Genuine break at ${{ steps.hs.outputs.culprit-commit }} — needs manual work"

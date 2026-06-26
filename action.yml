@@ -104,23 +104,19 @@ inputs:
     default: 'last-good'
   apply-fixes:
     description: >
-      Fold hopscotch's automated import fixes (module-deprecation rewrites)
-      into the PR by running `hopscotch fix apply`. One of:
-        none     (default) — detect only. Proposals, advisories, and
-                             detection notes are still surfaced in the PR /
-                             issue body and in outputs; no source is touched.
-        boundary           — apply only the break-repairing proposals
-                             (`--no-advisories`). In `pin-to: first-bad` this
-                             turns the reproduction PR into a mergeable
-                             "fix breaking changes" PR.
-        all                — also apply deprecation-hygiene advisories. In
-                             `pin-to: last-good` this folds advisories into a
-                             fully-green bump PR.
-      Boundary proposals are only applied where the manifest sits at the
-      break (`pin-to: first-bad`); in `last-good` mode only advisories on a
-      green run are applied, since a proposal can't build before the break.
+      When true, fold hopscotch's automated fixes into the PR by running
+      `hopscotch fix apply`. The default (false) detects only: the findings
+      are still surfaced in the PR / issue body and in the outputs, but no
+      source is touched.
+
+      Where fixes land depends on the mode. In `pin-to: first-bad` the
+      manifest is at the break, so the fixes are applied there — turning the
+      reproduction PR into a mergeable "fix breaking changes" PR. In
+      `pin-to: last-good` only a fully-green run folds in deprecation-hygiene
+      advisories (a break repair can't build before the break, so it is not
+      applied to the bump PR).
     required: false
-    default: 'none'
+    default: 'false'
   open-pr:
     description: 'Open or update a PR when the manifest pin changes.'
     required: false
