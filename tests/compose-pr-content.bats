@@ -127,3 +127,69 @@ teardown() { teardown_sandbox; }
   grep -q "Last-known-good" "$GITHUB_OUTPUT"
   grep -q "fffffff" "$GITHUB_OUTPUT"
 }
+
+# --- automated-fix detection in the PR body ---
+
+@test "first-bad: fixes applied flips the explainer and lists the rewrites" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  export FIXES_APPLIED=true
+  export PROPOSED_FIXES_MD='- `Demo.Old` → `Demo.New`'
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Automated fixes applied" "$GITHUB_OUTPUT"
+  grep -Fq -- '- `Demo.Old` → `Demo.New`' "$GITHUB_OUTPUT"
+  grep -q "validates the repair" "$GITHUB_OUTPUT"
+  run grep -c "reproduce the break" "$GITHUB_OUTPUT"
+  [ "$output" = "0" ]
+}
+
+@test "first-bad: proposals available but not applied → keeps reproduction wording" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  export FIXES_APPLIED=false
+  export PROPOSED_FIXES_MD='- `Demo.Old` → `Demo.New`'
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Automated fixes available" "$GITHUB_OUTPUT"
+  grep -q "hopscotch fix apply" "$GITHUB_OUTPUT"
+  grep -q "reproduce the break" "$GITHUB_OUTPUT"
+}
+
+@test "first-bad: detection notes are surfaced" {
+  export GH_STUB_MODE=empty
+  export PIN_TO=first-bad
+  export OUTCOME=incompatible
+  export CULPRIT=$NEW_PIN
+  export DETECTION_NOTES_MD='- Demo.Gone deleted with no replacement shim'
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Detection notes" "$GITHUB_OUTPUT"
+  grep -q "no replacement shim" "$GITHUB_OUTPUT"
+}
+
+@test "last-good: applied advisories appear as deprecation hygiene" {
+  export GH_STUB_MODE=empty
+  export OUTCOME=passed
+  export CULPRIT=""
+  export FIXES_APPLIED=true
+  export DEPRECATED_IMPORTS_MD='- `Demo.Old` → `Demo.New`'
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  grep -q "Deprecation hygiene applied" "$GITHUB_OUTPUT"
+  grep -Fq -- '- `Demo.Old` → `Demo.New`' "$GITHUB_OUTPUT"
+}
+
+@test "no detection results → no detection sections" {
+  export GH_STUB_MODE=empty
+  export OUTCOME=passed
+  export CULPRIT=""
+  run "$SCRIPTS_DIR/compose-pr-content.sh"
+  [ "$status" -eq 0 ]
+  run grep -cE "Automated fixes|Deprecation hygiene|Detection notes" "$GITHUB_OUTPUT"
+  [ "$output" = "0" ]
+}

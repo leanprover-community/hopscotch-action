@@ -2,9 +2,14 @@
 # Parse .lake/hopscotch/results.json (hopscotch's public, versioned output)
 # into structured GitHub Actions outputs.
 #
-# Schema: docs/results.schema.json in the hopscotch repo. We pin to
-# schemaVersion = 1; any other value aborts as a tool error so a breaking
-# hopscotch change can't silently misreport results.
+# Schema: docs/results.schema.json in the hopscotch repo. We accept
+# schemaVersions 1–3 — every version whose field semantics this parser
+# understands. The fields we read (status, items, firstFailingCommit,
+# lastSuccessfulCommit, culpritLogPath, failureStage) are stable across
+# all three; the autofix fields (proposedFixes / deprecatedImports /
+# detectionNotes, added in v3) default to empty on older outputs. Any
+# version outside that set aborts as a tool error so a breaking hopscotch
+# change can't silently misreport results.
 #
 # Outcome is determined directly by `firstFailingCommit`:
 #   * null → no failing commit → "passed"
@@ -17,6 +22,14 @@
 #   target_commit    — items[-1]
 #   new_pin          — dep rev in lake-manifest.json after the run
 #   items_count      — items.length
+#   culprit_log_path — path to the culprit build log (empty unless stopped)
+#   failure_stage    — failing step ("lake update|build|test|lint" / git check)
+#   proposed_fix_count       — number of automated boundary repairs proposed
+#   deprecated_import_count  — number of live-shim deprecation advisories
+#   detection_note_count     — number of human-readable detection notes
+#   proposed_fixes_md        — rendered markdown list of proposals (heredoc)
+#   deprecated_imports_md    — rendered markdown list of advisories (heredoc)
+#   detection_notes_md       — rendered markdown list of notes (heredoc)
 #   summary_md       — contents of hopscotch's summary.md (heredoc)
 #
 # Required env:
@@ -41,10 +54,13 @@ if [ ! -f "$RESULTS" ]; then
 fi
 
 SCHEMA_VERSION=$(jq -r '.schemaVersion' "$RESULTS")
-if [ "$SCHEMA_VERSION" != "1" ]; then
-  echo "outcome=tool-error" >> "$GITHUB_OUTPUT"
-  die "Unexpected results.json schemaVersion: ${SCHEMA_VERSION} (expected 1). Bump hopscotch-action's parser."
-fi
+case "$SCHEMA_VERSION" in
+  1|2|3) ;;
+  *)
+    echo "outcome=tool-error" >> "$GITHUB_OUTPUT"
+    die "Unsupported results.json schemaVersion: ${SCHEMA_VERSION} (this action understands 1–3). Bump hopscotch-action's parser."
+    ;;
+esac
 
 STATUS=$(jq -r '.status' "$RESULTS")
 case "$STATUS" in
@@ -65,6 +81,33 @@ TARGET_COMMIT=$(jq -r    '.items[-1] // ""'          "$RESULTS")
 CULPRIT=$(jq -r          '.firstFailingCommit // ""' "$RESULTS")
 LAST_GOOD=$(jq -r        '.lastSuccessfulCommit // ""' "$RESULTS")
 CULPRIT_LOG_PATH=$(jq -r '.culpritLogPath // ""'     "$RESULTS")
+FAILURE_STAGE=$(jq -r    '.failureStage // ""'       "$RESULTS")
+
+# Automated-fix detection (schemaVersion 3+; absent fields default to empty).
+PROPOSED_FIX_COUNT=$(jq -r      '(.proposedFixes // [])     | length' "$RESULTS")
+DEPRECATED_IMPORT_COUNT=$(jq -r '(.deprecatedImports // []) | length' "$RESULTS")
+DETECTION_NOTE_COUNT=$(jq -r    '(.detectionNotes // [])    | length' "$RESULTS")
+
+# Render a ProposedFix array (.proposedFixes / .deprecatedImports) into a
+# markdown bullet list. Each entry becomes either an import rewrite
+# (`old → new, new`), an import removal (empty newModules), with a
+# `[partial]` marker when an import rewrite alone may be insufficient.
+render_fixes() {
+  jq -r --arg field "$1" '
+    (.[$field] // [])[] |
+    ( if (.newModules | length) == 0
+      then "- remove import `\(.oldModule)`"
+      else "- `\(.oldModule)` → " + (.newModules | map("`" + . + "`") | join(", "))
+      end )
+    + ( if .partialFix
+        then " _[partial" + (if (.note // "") != "" then ": " + .note else "" end) + "]_"
+        else "" end )
+  ' "$RESULTS"
+}
+
+PROPOSED_FIXES_MD=$(render_fixes proposedFixes)
+DEPRECATED_IMPORTS_MD=$(render_fixes deprecatedImports)
+DETECTION_NOTES_MD=$(jq -r '(.detectionNotes // [])[] | "- " + .' "$RESULTS")
 
 if [ -z "$CULPRIT" ]; then
   OUTCOME="passed"
@@ -97,6 +140,19 @@ SUMMARY_MD=""
   echo "new_pin=$NEW_PIN"
   echo "items_count=$ITEMS_COUNT"
   echo "culprit_log_path=$CULPRIT_LOG_PATH"
+  echo "failure_stage=$FAILURE_STAGE"
+  echo "proposed_fix_count=$PROPOSED_FIX_COUNT"
+  echo "deprecated_import_count=$DEPRECATED_IMPORT_COUNT"
+  echo "detection_note_count=$DETECTION_NOTE_COUNT"
+  echo "proposed_fixes_md<<FIXES_EOF"
+  printf '%s\n' "$PROPOSED_FIXES_MD"
+  echo "FIXES_EOF"
+  echo "deprecated_imports_md<<DEPRECATED_EOF"
+  printf '%s\n' "$DEPRECATED_IMPORTS_MD"
+  echo "DEPRECATED_EOF"
+  echo "detection_notes_md<<NOTES_EOF"
+  printf '%s\n' "$DETECTION_NOTES_MD"
+  echo "NOTES_EOF"
   echo "summary_md<<SUMMARY_EOF"
   printf '%s\n' "$SUMMARY_MD"
   echo "SUMMARY_EOF"

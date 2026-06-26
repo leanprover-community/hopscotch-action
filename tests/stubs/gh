@@ -18,6 +18,11 @@
 #   gh pr comment <num>   — records the comment to $GH_STUB_LOG (if set):
 #                             "comment <num> <body>"
 #   gh pr close   <num>   — records to $GH_STUB_LOG: "close <num>"
+#   gh issue list ...     — emits the JSON in $GH_STUB_ISSUE_LIST (default
+#                           '[]'); honors --jq like `gh pr list`.
+#   gh issue create ...   — records "issue-create" + the --body to
+#                           $GH_STUB_LOG, echoes a fake issue URL.
+#   gh issue edit ...     — records "issue-edit" + the --body.
 #   gh label create ...   — silently succeeds.
 
 set -e
@@ -75,6 +80,61 @@ if [ "${1:-}" = "pr" ]; then
     create|edit)
       # Used by other scripts; for now just acknowledge.
       record "pr-${1}"
+      exit 0
+      ;;
+  esac
+fi
+
+# --- issue subcommands ---
+if [ "${1:-}" = "issue" ]; then
+  shift
+  case "${1:-}" in
+    list)
+      payload="${GH_STUB_ISSUE_LIST:-[]}"
+      jq_filter=""
+      while [ $# -gt 0 ]; do
+        if [ "$1" = "--jq" ]; then
+          jq_filter="$2"
+          shift 2
+        else
+          shift
+        fi
+      done
+      if [ -n "$jq_filter" ]; then
+        printf '%s' "$payload" | jq -r "$jq_filter"
+      else
+        printf '%s' "$payload"
+      fi
+      exit 0
+      ;;
+    create|edit)
+      # Record the --body so tests can assert on issue content; echo a URL
+      # for `create` so the caller can parse the issue number from it.
+      action="$1"
+      shift
+      body=""
+      while [ $# -gt 0 ]; do
+        if [ "$1" = "--body" ]; then
+          body="$2"
+          shift 2
+        else
+          shift
+        fi
+      done
+      record "issue-${action}"
+      [ -n "$body" ] && record "$body"
+      [ "$action" = "create" ] \
+        && printf '%s\n' "https://github.com/${GITHUB_REPOSITORY:-fake/repo}/issues/123"
+      exit 0
+      ;;
+    comment)
+      shift
+      record "issue-comment $1"
+      exit 0
+      ;;
+    close)
+      shift
+      record "issue-close $1"
       exit 0
       ;;
   esac

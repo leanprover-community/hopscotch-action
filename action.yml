@@ -37,17 +37,47 @@ inputs:
         extra-args: |
           --scan-mode linear
           --allow-dirty-workspace
+      Use this for hopscotch flags without a dedicated input (e.g.
+      `--commits-file`, `--git-url`, `--config-file`, `--no-auto-fix`).
+    required: false
+    default: ''
+
+  # ---- Verify steps -----------------------------------------------------
+  run-tests:
+    description: >
+      Add a `lake test` verify step to each probe (hopscotch `--test`). A
+      commit that builds but fails its tests is then treated as a failure.
+    required: false
+    default: 'false'
+  run-lint:
+    description: >
+      Add a `lake lint` verify step to each probe (hopscotch `--lint`).
+    required: false
+    default: 'false'
+  build-args:
+    description: >
+      Extra arguments for the `lake build` verify step (hopscotch
+      `--build-args`). Whitespace-separated; no shell quoting. Example:
+      `--wfail` to treat warnings (including deprecation warnings) as errors.
+    required: false
+    default: ''
+  test-args:
+    description: 'Extra arguments for the `lake test` verify step (hopscotch `--test-args`).'
+    required: false
+    default: ''
+  lint-args:
+    description: 'Extra arguments for the `lake lint` verify step (hopscotch `--lint-args`).'
     required: false
     default: ''
 
   # ---- Action behaviour -------------------------------------------------
   hopscotch-version:
     description: >
-      hopscotch release tag (e.g. "v1.4.0") or "latest" to resolve the newest
+      hopscotch release tag (e.g. "v2.0.0") or "latest" to resolve the newest
       release automatically. Pinning to a specific version is recommended for
       reproducibility.
     required: false
-    default: 'v1.4.0'
+    default: 'v2.0.0'
   max-window-size:
     description: >
       Abort if the commit range contains more than this many commits. Guards
@@ -72,6 +102,25 @@ inputs:
       a bump PR and a fix PR; running only one mode is fine.
     required: false
     default: 'last-good'
+  apply-fixes:
+    description: >
+      Fold hopscotch's automated import fixes (module-deprecation rewrites)
+      into the PR by running `hopscotch fix apply`. One of:
+        none     (default) — detect only. Proposals, advisories, and
+                             detection notes are still surfaced in the PR /
+                             issue body and in outputs; no source is touched.
+        boundary           — apply only the break-repairing proposals
+                             (`--no-advisories`). In `pin-to: first-bad` this
+                             turns the reproduction PR into a mergeable
+                             "fix breaking changes" PR.
+        all                — also apply deprecation-hygiene advisories. In
+                             `pin-to: last-good` this folds advisories into a
+                             fully-green bump PR.
+      Boundary proposals are only applied where the manifest sits at the
+      break (`pin-to: first-bad`); in `last-good` mode only advisories on a
+      green run are applied, since a proposal can't build before the break.
+    required: false
+    default: 'none'
   open-pr:
     description: 'Open or update a PR when the manifest pin changes.'
     required: false
@@ -151,6 +200,21 @@ outputs:
   target-commit:
     description: 'SHA that the --to ref resolved to.'
     value: ${{ steps.parse.outputs.target_commit }}
+  failure-stage:
+    description: >
+      The probe step that failed when outcome=incompatible: "lake update",
+      "lake build", "lake test", "lake lint", or "git cleanliness check".
+      Empty otherwise.
+    value: ${{ steps.parse.outputs.failure_stage }}
+  proposed-fix-count:
+    description: 'Number of automated boundary repairs hopscotch proposed (0 when none).'
+    value: ${{ steps.parse.outputs.proposed_fix_count }}
+  deprecated-import-count:
+    description: 'Number of live-shim deprecation advisories recorded (0 when none).'
+    value: ${{ steps.parse.outputs.deprecated_import_count }}
+  fixes-applied:
+    description: '"true" when `apply-fixes` ran `hopscotch fix apply` and edited the tree.'
+    value: ${{ steps.apply-fixes.outputs.fixes_applied }}
   previous-pin:
     description: 'The dependency rev in lake-manifest.json before this run.'
     value: ${{ steps.read-pin.outputs.previous_pin }}
@@ -212,10 +276,15 @@ runs:
         EXTRA_ARGS: ${{ inputs.extra-args }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
         PIN_TO: ${{ inputs.pin-to }}
+        RUN_TESTS: ${{ inputs.run-tests }}
+        RUN_LINT: ${{ inputs.run-lint }}
+        BUILD_ARGS: ${{ inputs.build-args }}
+        TEST_ARGS: ${{ inputs.test-args }}
+        LINT_ARGS: ${{ inputs.lint-args }}
       run: ${{ github.action_path }}/scripts/run-hopscotch.sh
 
-    # Stage 4 — parse .lake/hopscotch/results.json (public, schemaVersion-1
-    # output) into structured step outputs.
+    # Stage 4 — parse .lake/hopscotch/results.json (public, versioned output;
+    # schemaVersion 1–3) into structured step outputs.
     - name: Parse hopscotch results
       id: parse
       shell: bash
@@ -250,6 +319,23 @@ runs:
         OPEN_PR: ${{ inputs.open-pr }}
       run: ${{ github.action_path }}/scripts/should-open-pr.sh
 
+    # Stage 6b — optionally fold hopscotch's automated import fixes into the
+    # working tree (before check-changes sees it). Gated on a pending PR; the
+    # script no-ops for apply-fixes=none and for modes/outcomes where a fix
+    # can't be applied safely.
+    - name: Apply automated fixes
+      id: apply-fixes
+      if: steps.should-open-pr.outputs.yes == 'true'
+      shell: bash
+      env:
+        APPLY_FIXES: ${{ inputs.apply-fixes }}
+        PIN_TO: ${{ inputs.pin-to }}
+        OUTCOME: ${{ steps.parse.outputs.outcome }}
+        PROJECT_DIR: ${{ inputs.project-dir }}
+        PROPOSED_FIX_COUNT: ${{ steps.parse.outputs.proposed_fix_count }}
+        DEPRECATED_IMPORT_COUNT: ${{ steps.parse.outputs.deprecated_import_count }}
+      run: ${{ github.action_path }}/scripts/apply-fixes.sh
+
     # Stage 7 — build the PR title / body / commit message.
     - name: Compose PR content
       id: descriptions
@@ -266,6 +352,12 @@ runs:
         CULPRIT: ${{ steps.parse.outputs.culprit_commit }}
         LAST_GOOD: ${{ steps.parse.outputs.last_good_commit }}
         CULPRIT_LOG_PATH: ${{ steps.parse.outputs.culprit_log_path }}
+        FIXES_APPLIED: ${{ steps.apply-fixes.outputs.fixes_applied }}
+        PROPOSED_FIX_COUNT: ${{ steps.parse.outputs.proposed_fix_count }}
+        DEPRECATED_IMPORT_COUNT: ${{ steps.parse.outputs.deprecated_import_count }}
+        PROPOSED_FIXES_MD: ${{ steps.parse.outputs.proposed_fixes_md }}
+        DEPRECATED_IMPORTS_MD: ${{ steps.parse.outputs.deprecated_imports_md }}
+        DETECTION_NOTES_MD: ${{ steps.parse.outputs.detection_notes_md }}
       run: ${{ github.action_path }}/scripts/compose-pr-content.sh
 
     # Stage 8a — check working tree for changes.
@@ -357,6 +449,10 @@ runs:
         PR_URL: ${{ steps.resolve-outputs.outputs.pr_url }}
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         SUMMARY_MD: ${{ steps.parse.outputs.summary_md }}
+        FAILURE_STAGE: ${{ steps.parse.outputs.failure_stage }}
+        FIXES_APPLIED: ${{ steps.apply-fixes.outputs.fixes_applied }}
+        PROPOSED_FIX_COUNT: ${{ steps.parse.outputs.proposed_fix_count }}
+        DEPRECATED_IMPORT_COUNT: ${{ steps.parse.outputs.deprecated_import_count }}
       run: ${{ github.action_path }}/scripts/write-summary.sh
 
     # Stage 9b — manage the per-dependency tracking issue (LKG mode only;
@@ -375,4 +471,8 @@ runs:
         GIT_URL: ${{ steps.read-pin.outputs.git_url }}
         ISSUE_LABELS: ${{ inputs.issue-labels }}
         CULPRIT_LOG_PATH: ${{ steps.parse.outputs.culprit_log_path }}
+        FAILURE_STAGE: ${{ steps.parse.outputs.failure_stage }}
+        PROPOSED_FIX_COUNT: ${{ steps.parse.outputs.proposed_fix_count }}
+        PROPOSED_FIXES_MD: ${{ steps.parse.outputs.proposed_fixes_md }}
+        DETECTION_NOTES_MD: ${{ steps.parse.outputs.detection_notes_md }}
       run: ${{ github.action_path }}/scripts/manage-issue.sh

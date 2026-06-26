@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "status": "fullySuccessful",
   "mode": "bisect",
   "exitCode": 0,
@@ -36,5 +36,18 @@
       }
     ]
   },
-  "updatedAt": "2026-04-24T14:00:00Z"
+  "updatedAt": "2026-04-24T14:00:00Z",
+  "proposedFixes": [],
+  "deprecatedImports": [
+    {
+      "fixId": "module-deprecation",
+      "oldModule": "Mathlib.Data.Real.Sqrt",
+      "newModules": [
+        "Mathlib.Analysis.SpecialFunctions.Sqrt"
+      ],
+      "partialFix": false,
+      "note": ""
+    }
+  ],
+  "detectionNotes": []
 }
