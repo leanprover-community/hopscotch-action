@@ -11,12 +11,19 @@
 #                          branch and reproduce the break. Includes a
 #                          collapsible build-failure log when available.
 #
+# When hopscotch's automated-fix detection has results (proposals,
+# advisories, or notes) they are woven into the body, and the first-bad
+# explainer flips between "reproduce the break" and "fixes applied"
+# depending on whether apply-fixes.sh edited the tree (FIXES_APPLIED).
+#
 # Emits outputs: pr_title, commit_message, pr_body (heredoc)
 #
 # Required env:
 #   GH_TOKEN, NEW_PIN, PREVIOUS_PIN, DEP_NAME, GIT_URL, OUTCOME, CULPRIT
 # Optional env:
-#   PIN_TO (defaults to last-good), LAST_GOOD, CULPRIT_LOG_PATH
+#   PIN_TO (defaults to last-good), LAST_GOOD, CULPRIT_LOG_PATH,
+#   FIXES_APPLIED, PROPOSED_FIX_COUNT, DEPRECATED_IMPORT_COUNT,
+#   PROPOSED_FIXES_MD, DEPRECATED_IMPORTS_MD, DETECTION_NOTES_MD
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -32,6 +39,10 @@ OUTCOME="${OUTCOME:-}"
 CULPRIT="${CULPRIT:-}"
 LAST_GOOD="${LAST_GOOD:-}"
 CULPRIT_LOG_PATH="${CULPRIT_LOG_PATH:-}"
+FIXES_APPLIED="${FIXES_APPLIED:-false}"
+PROPOSED_FIXES_MD="${PROPOSED_FIXES_MD:-}"
+DEPRECATED_IMPORTS_MD="${DEPRECATED_IMPORTS_MD:-}"
+DETECTION_NOTES_MD="${DETECTION_NOTES_MD:-}"
 
 REPO=$(repo_from_git_url "$GIT_URL")
 
@@ -75,6 +86,35 @@ build_log_block() {
   printf $'<details>\n<summary>Build failure log</summary>\n\n```\n%s\n```\n\n</details>' "$filtered"
 }
 
+# Render the automated-fix detection results into PR-body sections. Each
+# block is prefixed with a blank line so it concatenates cleanly onto
+# whatever precedes it; returns empty when there is nothing to report.
+detection_section() {
+  local out=""
+  if [ -n "$PROPOSED_FIXES_MD" ]; then
+    if [ "$FIXES_APPLIED" = "true" ]; then
+      out+=$'\n\n### Automated fixes applied\n\nThese fixes were applied to the branch; this PR\'s CI validates them:\n\n'"$PROPOSED_FIXES_MD"
+    elif [ "$PIN_TO" = "first-bad" ]; then
+      # This branch is pinned at the break, so the rewrites build here.
+      out+=$'\n\n### Automated fixes available\n\nRun `hopscotch fix apply` to apply them:\n\n'"$PROPOSED_FIXES_MD"
+    else
+      # last-good: this branch is pinned *before* the break, where the
+      # rewrites would not build — point at the fix-PR mode instead of a bare
+      # `hopscotch fix apply`.
+      out+=$'\n\n### Automated fixes available\n\nThese repair the upcoming break. Open a ready-to-merge fix PR by running this action in `pin-to: first-bad` mode with `apply-fixes: true`:\n\n'"$PROPOSED_FIXES_MD"
+    fi
+  fi
+  if [ "$FIXES_APPLIED" = "true" ] && [ -n "$DEPRECATED_IMPORTS_MD" ]; then
+    out+=$'\n\n### Deprecation hygiene applied\n\nThe following were also applied:\n\n'"$DEPRECATED_IMPORTS_MD"
+  fi
+  if [ -n "$DETECTION_NOTES_MD" ]; then
+    out+=$'\n\n### Detection notes\n\n'"$DETECTION_NOTES_MD"
+  fi
+  printf '%s' "$out"
+}
+
+DETECTION=$(detection_section)
+
 NEW_SHORT="${NEW_PIN:0:7}"
 NEW_SUBJECT=$(fetch_subject "$NEW_PIN")
 
@@ -100,14 +140,19 @@ if [ "$PIN_TO" = "first-bad" ]; then
 
   # shellcheck disable=SC2016
   # Backticks are markdown literals — %s does the actual expansion.
-  EXPLAINER=$(printf 'This PR bumps `%s` to the first-known-bad commit so you can check out the branch and reproduce the break locally.' "$DEP_NAME")
+  if [ "$FIXES_APPLIED" = "true" ]; then
+    EXPLAINER=$(printf 'This PR pins `%s` to the first-known-bad commit and applies hopscotch'\''s proposed fixes, so this PR'\''s CI validates the repair. Review the changes and merge to advance past the break.' "$DEP_NAME")
+  else
+    EXPLAINER=$(printf 'This PR bumps `%s` to the first-known-bad commit so you can check out the branch and reproduce the break locally.' "$DEP_NAME")
+  fi
 
   FOOTER="_Opened by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action) · [run](${RUN_URL})_"
 
-  PR_BODY=$(printf '%s%s%s\n\n%s\n\n%s' \
+  PR_BODY=$(printf '%s%s%s%s\n\n%s\n\n%s' \
     "$TARGET_LINE" \
     "$LAST_GOOD_LINE" \
     "$LOG_SECTION" \
+    "$DETECTION" \
     "$EXPLAINER" \
     "$FOOTER")
 else
@@ -137,11 +182,12 @@ else
 
   FOOTER="_Updated by [hopscotch-action](https://github.com/leanprover-community/hopscotch-action) · [run](${RUN_URL})_"
 
-  PR_BODY=$(printf '%s\n%s%s%s\n\n%s' \
+  PR_BODY=$(printf '%s\n%s%s%s%s\n\n%s' \
     "$TARGET_LINE" \
     "$PREV_LINE" \
     "$COMMIT_COUNT_LINE" \
     "$CULPRIT_NOTE" \
+    "$DETECTION" \
     "$FOOTER")
 fi
 

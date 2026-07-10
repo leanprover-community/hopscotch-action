@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 3,
   "status": "stopped",
   "mode": "bisect",
   "exitCode": 1,
@@ -52,5 +52,29 @@
       }
     ]
   },
-  "updatedAt": "2026-04-24T14:00:00Z"
+  "updatedAt": "2026-04-24T14:00:00Z",
+  "proposedFixes": [
+    {
+      "fixId": "module-deprecation",
+      "oldModule": "Mathlib.Topology.Algebra.Module.LinearMap",
+      "newModules": [
+        "Mathlib.Topology.Algebra.Module.ContinuousLinearMap.Basic",
+        "Mathlib.Topology.Algebra.Module.ContinuousLinearMap.Idempotent"
+      ],
+      "partialFix": false,
+      "note": ""
+    }
+  ],
+  "deprecatedImports": [
+    {
+      "fixId": "module-deprecation",
+      "oldModule": "Mathlib.Order.Compat",
+      "newModules": [
+        "Mathlib.Order.New"
+      ],
+      "partialFix": true,
+      "note": "shim also defines @[deprecated] aliases"
+    }
+  ],
+  "detectionNotes": []
 }

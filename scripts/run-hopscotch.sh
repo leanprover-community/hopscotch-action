@@ -18,10 +18,17 @@
 #   1  — culprit / boundary found  (NOT a step failure)
 #   2+ — tool error (propagated; makes the step fail)
 #
+# The optional `--test` / `--lint` verify steps and their `--*-args`
+# counterparts are driven by RUN_TESTS / RUN_LINT / BUILD_ARGS / TEST_ARGS /
+# LINT_ARGS. hopscotch whitespace-splits each `--*-args` string itself, so we
+# pass the whole value as a single argument.
+#
 # Emits output: exit_code
 #
 # Required env:
 #   DEP_NAME, FROM_REF, TO_REF, PROJECT_DIR, EXTRA_ARGS, GITHUB_TOKEN, PIN_TO
+# Optional env:
+#   RUN_TESTS, RUN_LINT, BUILD_ARGS, TEST_ARGS, LINT_ARGS
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -32,6 +39,11 @@ FROM_REF="${FROM_REF:-}"
 TO_REF="${TO_REF:-}"
 EXTRA_ARGS="${EXTRA_ARGS:-}"
 PIN_TO="${PIN_TO:-last-good}"
+RUN_TESTS="${RUN_TESTS:-false}"
+RUN_LINT="${RUN_LINT:-false}"
+BUILD_ARGS="${BUILD_ARGS:-}"
+TEST_ARGS="${TEST_ARGS:-}"
+LINT_ARGS="${LINT_ARGS:-}"
 
 # Clean any stale session from a previous run.
 hopscotch clean --project-dir "$PROJECT_DIR" 2>/dev/null || true
@@ -43,6 +55,13 @@ if [ "$PIN_TO" != "first-bad" ]; then
 fi
 [ -n "$FROM_REF" ] && ARGS+=(--from "$FROM_REF")
 [ -n "$TO_REF"   ] && ARGS+=(--to "$TO_REF")
+
+# Optional verify steps and their lake argument strings.
+[ "$RUN_TESTS" = "true" ] && ARGS+=(--test)
+[ "$RUN_LINT"  = "true" ] && ARGS+=(--lint)
+[ -n "$BUILD_ARGS" ] && ARGS+=(--build-args "$BUILD_ARGS")
+[ -n "$TEST_ARGS"  ] && ARGS+=(--test-args "$TEST_ARGS")
+[ -n "$LINT_ARGS"  ] && ARGS+=(--lint-args "$LINT_ARGS")
 
 # Word-split each line of EXTRA_ARGS. Empty lines ignored.
 while IFS= read -r line; do

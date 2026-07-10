@@ -4,11 +4,17 @@
 #   - passed:       close the existing issue (if any) with a recovery comment
 #   - skipped/tool-error: no-op
 #
+# When hopscotch proposes an automated fix for the boundary, the issue says
+# so and points at `hopscotch fix apply` / the action's fix-PR mode; when it
+# can't (a genuine removal), the recorded detection notes explain why.
+#
 # Emits outputs: issue_number, issue_url
 #
 # Required env:
 #   GH_TOKEN, OUTCOME, DEP_NAME, CULPRIT, LAST_GOOD, GIT_URL,
 #   ISSUE_LABELS, CULPRIT_LOG_PATH
+# Optional env:
+#   FAILURE_STAGE, PROPOSED_FIX_COUNT, PROPOSED_FIXES_MD, DETECTION_NOTES_MD
 
 # shellcheck source=lib/common.sh
 source "$(dirname "$0")/lib/common.sh"
@@ -22,6 +28,10 @@ LAST_GOOD="${LAST_GOOD:-}"
 GIT_URL="${GIT_URL:-}"
 ISSUE_LABELS="${ISSUE_LABELS:-}"
 CULPRIT_LOG_PATH="${CULPRIT_LOG_PATH:-}"
+FAILURE_STAGE="${FAILURE_STAGE:-}"
+PROPOSED_FIX_COUNT="${PROPOSED_FIX_COUNT:-0}"
+PROPOSED_FIXES_MD="${PROPOSED_FIXES_MD:-}"
+DETECTION_NOTES_MD="${DETECTION_NOTES_MD:-}"
 
 # Stable marker used to locate the tracking issue across runs.
 MARKER="<!-- hopscotch-tracking:${DEP_NAME} -->"
@@ -106,11 +116,32 @@ if [ "$OUTCOME" = "incompatible" ]; then
   INTRO="An incompatibility has been detected between this project and recent changes in \`${DEP_NAME}\`.
 In other words, this project can't advance to the tip of \`${DEP_NAME}\` without breaking."
 
+  # Note a non-build failure stage (lake test / lint / git check) so the
+  # break isn't mistaken for a plain compile error.
+  STAGE_NOTE=""
+  [ -n "$FAILURE_STAGE" ] && [ "$FAILURE_STAGE" != "lake build" ] \
+    && STAGE_NOTE=" (failed at \`${FAILURE_STAGE}\`)"
+
   CULPRIT_LINE=""
-  [ -n "$CULPRIT" ] && CULPRIT_LINE="First incompatible \`${DEP_NAME}\` commit: ${CULPRIT_INFO}."
+  [ -n "$CULPRIT" ] && CULPRIT_LINE="First incompatible \`${DEP_NAME}\` commit: ${CULPRIT_INFO}${STAGE_NOTE}."
 
   LAST_GOOD_LINE=""
   [ -n "$LAST_GOOD" ] && LAST_GOOD_LINE="Last-known-good \`${DEP_NAME}\` commit: ${LAST_GOOD_INFO}."
+
+  # Automated-fix detection: surface a repairable boundary, or explain why
+  # the break could not be auto-repaired (a genuine removal).
+  FIX_BLOCK=""
+  if [ "$PROPOSED_FIX_COUNT" -gt 0 ] && [ -n "$PROPOSED_FIXES_MD" ]; then
+    FIX_BLOCK="**An automated fix is available.** hopscotch proposes the following:
+
+${PROPOSED_FIXES_MD}
+
+Apply locally with \`hopscotch fix apply\`, or run this action in \`pin-to: first-bad\` mode with \`apply-fixes\` to open a ready-to-merge fix PR."
+  elif [ -n "$DETECTION_NOTES_MD" ]; then
+    FIX_BLOCK="**No automated fix found** — this looks like a genuine breaking change that needs manual work:
+
+${DETECTION_NOTES_MD}"
+  fi
 
   VERIFIED_BLOCK=""
   if [ -n "$DOWNSTREAM_SHA" ]; then
@@ -134,6 +165,8 @@ ${CULPRIT_LINE}
 ${LAST_GOOD_LINE}
 
 ${VERIFIED_BLOCK}
+
+${FIX_BLOCK}
 
 ${LOG_BLOCK}
 

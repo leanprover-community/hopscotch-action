@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Stub for `hopscotch`. Records the argv of each invocation and exits with a
+# configurable code so tests can assert on what the action asked it to do.
+#
+#   HOPSCOTCH_STUB_LOG  — file to append the argv (one line per call) to.
+#   HOPSCOTCH_STUB_EXIT — exit code to return (default 0).
+[ -n "${HOPSCOTCH_STUB_LOG:-}" ] && printf '%s\n' "$*" >> "$HOPSCOTCH_STUB_LOG"
+exit "${HOPSCOTCH_STUB_EXIT:-0}"
