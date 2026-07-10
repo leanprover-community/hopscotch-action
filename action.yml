@@ -73,11 +73,14 @@ inputs:
   # ---- Action behaviour -------------------------------------------------
   hopscotch-version:
     description: >
-      hopscotch release tag (e.g. "v2.0.0") or "latest" to resolve the newest
-      release automatically. Pinning to a specific version is recommended for
-      reproducibility.
+      hopscotch release tag (e.g. "v2.0.0-beta2") or "latest" to resolve the
+      newest release automatically. Pinning to a specific version is
+      recommended for reproducibility. The default tracks the v2 pre-release
+      until v2.0.0 is published; note that "latest" resolves to the newest
+      *stable* release and skips pre-releases, so it will not pick up the v2
+      betas.
     required: false
-    default: 'v2.0.0'
+    default: 'v2.0.0-beta2'
   max-window-size:
     description: >
       Abort if the commit range contains more than this many commits. Guards

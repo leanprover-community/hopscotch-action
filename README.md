@@ -14,7 +14,7 @@ The action runs in one of two modes selected by `pin-to`:
 
 Run the action twice (once per mode) on the same workflow if you want both artifacts.
 
-Note: for repeatability, the default version of `hopscotch` used by this action is fixed, currently at **v2.0.0**. You can configure the version (to `latest` or otherwise) using the `hopscotch-version` parameter described below.
+Note: for repeatability, the default version of `hopscotch` used by this action is fixed, currently at **v2.0.0-beta2** (the v2 line is in pre-release; the default will move to `v2.0.0` once it ships). You can configure the version (to `latest` or otherwise) using the `hopscotch-version` parameter described below. `latest` resolves to the newest *stable* release and skips pre-releases, so it will not pick up the v2 betas.
 
 ## Quickstart
 
@@ -131,7 +131,7 @@ For the canonical CI flow: run `pin-to: first-bad` with `apply-fixes: true` on a
 | `build-args` | `` | Extra args for `lake build` (hopscotch `--build-args`). E.g. `--wfail` to treat warnings as errors. |
 | `test-args` | `` | Extra args for `lake test` (hopscotch `--test-args`). |
 | `lint-args` | `` | Extra args for `lake lint` (hopscotch `--lint-args`). |
-| `hopscotch-version` | `v2.0.0` | Release tag (e.g. `v2.0.0`) or `"latest"` to always use the newest release. |
+| `hopscotch-version` | `v2.0.0-beta2` | Release tag (e.g. `v2.0.0-beta2`) or `"latest"` (newest *stable* release; skips pre-releases). |
 | `max-window-size` | `3000` | Abort if the range contains more commits than this. |
 | | | |
 | | | |
